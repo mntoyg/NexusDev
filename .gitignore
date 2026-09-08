@@ -1,0 +1,35 @@
+# --- Secrets: never commit ---
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+credentials.json
+
+# --- Comet telemetry output (schema is documented in MASTER_PLAN.md) ---
+metrics/*.jsonl
+
+# --- Local model weights ---
+models/
+*.gguf
+*.safetensors
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# --- Aider ---
+.aider*
+!.aider.conf.yml.example
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
