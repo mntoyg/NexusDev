@@ -614,7 +614,7 @@ default answer is no.
 - [x] `README.md` — public introduction and node reference
 - [x] `.cursorrules` — Node 2 contract
 - [x] `context/MASTER_PLAN.md` — this document
-- [ ] `LICENSE` (MIT), `SECURITY.md`, `.gitignore`, `.env.example`
+- [x] `LICENSE` (MIT), `SECURITY.md`, `.gitignore`, `.env.example`
 - [ ] `context/TODO.md` and `context/QUEUE.md` seeded with Phase 1 tasks
 
 ### Phase 1 — The Bus
