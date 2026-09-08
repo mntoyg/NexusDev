@@ -280,9 +280,12 @@ Honesty matters more than a green checklist. Current implementation state:
 | `.gitignore` / `.env.example` discipline | ✅ | ✅ | Repository root |
 | MIT license and public-repo posture | ✅ | ✅ | `LICENSE` |
 | Untrusted-content-as-data rule | ✅ | 📄 docs only | `.cursorrules` §0.5, MASTER_PLAN §10 |
-| Branch protection enforcing I4 | ✅ | ❌ **not yet** | Phase 3 |
+| Branch protection enforcing I4 | ✅ | ✅ | `main`: PR required, 1 approval, linear history |
+| Agents cannot approve pull requests | ✅ | ✅ | Actions setting: *approve PRs* disabled |
+| `GITHUB_TOKEN` read-only by default | ✅ | ✅ | Actions setting: default permissions `read` |
+| Force-push / branch deletion blocked on `main` | ✅ | ✅ | GitHub branch protection |
 | `gitleaks` merge gate | ✅ | ❌ **not yet** | Phase 3 — `pr-gate.yml` |
-| Least-privilege workflow permissions | ✅ | ❌ no workflows yet | Phase 3 |
+| Per-job least-privilege `permissions:` blocks | ✅ | ❌ no workflows yet | Phase 3 |
 | Actions pinned to commit SHAs | ✅ | ❌ no workflows yet | Phase 3 |
 | Attempt / run / timeout caps | ✅ | ❌ **not yet** | Phase 2 — `ai-router.sh` |
 | Task `files:` scope enforcement | ✅ | ❌ **not yet** | Phase 1 — `task_parser.py` |
@@ -301,9 +304,22 @@ If you fork NexusDev and point it at your own repository, do these before you
 give any agent write access:
 
 - [ ] Enable **branch protection** on `main`: require pull requests, require at
-      least one approving review, dismiss stale approvals, and **do not** allow
-      bots or administrators to bypass it.
+      least one approving review, dismiss stale approvals, and require approval
+      from someone other than the last pusher.
+- [ ] Disable **"Allow GitHub Actions to create and approve pull requests"** and
+      set the default `GITHUB_TOKEN` permission to **read**. Branch protection
+      alone does not stop an agent that can approve its own pull request.
 - [ ] Confirm no workflow has `contents: write` on `main`.
+- [ ] Decide your **admin bypass** posture, and write the decision down:
+      - **Team repositories:** enable *Do not allow bypassing the above settings*.
+        Nobody, including owners, merges without review.
+      - **Solo repositories:** leave admin bypass **on**. GitHub does not let you
+        approve your own pull request, so enforcing it against admins would make
+        the repository permanently unmergeable. The boundary that matters for
+        **I4** still holds: no agent is an administrator, so no agent can merge.
+        Tighten this the moment a second maintainer joins.
+      - This repository currently runs the **solo** posture. That is a deliberate,
+        documented trade-off, not an oversight.
 - [ ] Enable **secret scanning with push protection**.
 - [ ] Enable **Dependabot alerts**.
 - [ ] Store every credential in **GitHub Actions secrets** or a local `.env`

@@ -632,7 +632,8 @@ default answer is no.
 ### Phase 3 — The Executor
 - [ ] `agent-execute.yml` — router → Aider → PR
 - [ ] `agent-dispatch.yml` — issue → task block
-- [ ] Branch protection and the `needs-architect` label rule
+- [x] Branch protection on `main` enforcing invariant I4 (see `SECURITY.md` §5)
+- [ ] The `needs-architect` label rule
 - [ ] End-to-end demo: issue in → reviewed PR out
 
 ### Phase 4 — The Observer
