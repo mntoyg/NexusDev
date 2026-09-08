@@ -157,7 +157,7 @@ NexusDev/
 
 ```bash
 # 1. Clone
-git clone https://github.com/<your-org>/NexusDev.git
+git clone https://github.com/mntoyg/NexusDev.git
 cd NexusDev
 
 # 2. Configure — copy the template, never commit the result
