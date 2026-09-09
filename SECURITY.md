@@ -243,6 +243,11 @@ ANTHROPIC_API_KEY="sk-..."
   answer to a new dependency is **no**.
 - Job permissions start at `contents: read` and widen only where a job
   demonstrably needs it.
+- Dependabot alerts and security updates are enabled. Note that a Dependabot
+  pull request is a **bot-authored pull request**, and is therefore subject to
+  exactly the same gate as an Aider-authored one: a human reviews the diff and
+  a human merges it. Dependency updates are not exempt from **I4**, and
+  auto-merging them would be a hole in it.
 
 ### 4.6 Telemetry privacy
 
@@ -290,7 +295,7 @@ Honesty matters more than a green checklist. Current implementation state:
 | Attempt / run / timeout caps | ✅ | ❌ **not yet** | Phase 2 — `ai-router.sh` |
 | Task `files:` scope enforcement | ✅ | ❌ **not yet** | Phase 1 — `task_parser.py` |
 | Lock against concurrent task claims | ⚠️ **undecided** | ❌ | ADR-004, open question |
-| Dependabot alerts | — | ❌ off | Enable before Phase 3 |
+| Dependabot alerts + security updates | ✅ | ✅ | Armed; nothing to scan until Phase 1 adds manifests |
 
 **Read this table as: NexusDev is currently a specification with a scaffold.**
 The security properties it claims are design commitments, and the roadmap is the
@@ -321,7 +326,8 @@ give any agent write access:
       - This repository currently runs the **solo** posture. That is a deliberate,
         documented trade-off, not an oversight.
 - [ ] Enable **secret scanning with push protection**.
-- [ ] Enable **Dependabot alerts**.
+- [ ] Enable **Dependabot alerts** *and* **Dependabot security updates**. Alerts
+      tell you; security updates open the fixing pull request for you.
 - [ ] Store every credential in **GitHub Actions secrets** or a local `.env`
       that is gitignored. Never in the repository.
 - [ ] Scope your API keys to the **minimum** the pipeline needs, and set a
