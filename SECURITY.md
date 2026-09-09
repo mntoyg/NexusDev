@@ -280,7 +280,7 @@ Honesty matters more than a green checklist. Current implementation state:
 
 | Control | Designed | Implemented | Where |
 | :--- | :---: | :---: | :--- |
-| Secret scanning + push protection | ✅ | ✅ | GitHub repository settings |
+| Secret scanning + push protection | ✅ | ⚠️ partial | Provider patterns only — see note below |
 | Private vulnerability reporting | ✅ | ✅ | GitHub Security tab |
 | `.gitignore` / `.env.example` discipline | ✅ | ✅ | Repository root |
 | MIT license and public-repo posture | ✅ | ✅ | `LICENSE` |
@@ -289,13 +289,35 @@ Honesty matters more than a green checklist. Current implementation state:
 | Agents cannot approve pull requests | ✅ | ✅ | Actions setting: *approve PRs* disabled |
 | `GITHUB_TOKEN` read-only by default | ✅ | ✅ | Actions setting: default permissions `read` |
 | Force-push / branch deletion blocked on `main` | ✅ | ✅ | GitHub branch protection |
-| `gitleaks` merge gate | ✅ | ❌ **not yet** | Phase 3 — `pr-gate.yml` |
+| `gitleaks` merge gate (generic secrets) | ✅ | ❌ **not yet** | Phase 3 — `pr-gate.yml`; **compensating control, see note** |
 | Per-job least-privilege `permissions:` blocks | ✅ | ❌ no workflows yet | Phase 3 |
 | Actions pinned to commit SHAs | ✅ | ❌ no workflows yet | Phase 3 |
 | Attempt / run / timeout caps | ✅ | ❌ **not yet** | Phase 2 — `ai-router.sh` |
 | Task `files:` scope enforcement | ✅ | ❌ **not yet** | Phase 1 — `task_parser.py` |
 | Lock against concurrent task claims | ⚠️ **undecided** | ❌ | ADR-004, open question |
 | Dependabot alerts + security updates | ✅ | ✅ | Armed; nothing to scan until Phase 1 adds manifests |
+
+### 5.1 Known gap: generic secret detection
+
+GitHub's free secret scanning on public repositories matches **provider
+patterns only** — recognisable shapes such as `sk-ant-…`, `ghp_…`, or
+`AKIA…`. Generic secrets are **not** covered: private key blocks, connection
+strings with embedded credentials (a `HERMES_ENDPOINT` of the form
+`https://user:pass@host` is the obvious one here), and high-entropy strings
+that match no known vendor format.
+
+Closing that gap through GitHub requires the paid **Secret Protection**
+product; the `secret_scanning_non_provider_patterns` and
+`secret_scanning_validity_checks` settings are unavailable on this
+repository. The API accepts a request to enable them, returns `200 OK`, and
+leaves them disabled — so do not trust a successful response here, re-read
+the setting to confirm.
+
+**The planned compensating control is the `gitleaks` merge gate** in
+`pr-gate.yml` (Phase 3), which detects generic patterns and high-entropy
+strings with no GitHub entitlement required. Until it ships, generic secret
+detection on this repository rests on human review and the discipline in
+[§4.3](#43-secret-handling). Treat that as a real, currently-open gap.
 
 **Read this table as: NexusDev is currently a specification with a scaffold.**
 The security properties it claims are design commitments, and the roadmap is the
