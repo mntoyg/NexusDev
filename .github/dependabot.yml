@@ -1,0 +1,42 @@
+# Dependabot version updates — NexusDev
+#
+# Owner: Node 6 (Antigravity).
+#
+# Why this exists: MASTER_PLAN.md §7.2 pins every GitHub Action to a full commit
+# SHA. A pin with nothing updating it rots — it silently stops receiving fixes.
+# This file keeps the pins current by opening pull requests that update the SHA
+# and its `# vX.Y.Z` comment together.
+#
+# What it does NOT cover: the gitleaks binary in secret-scan.yml is pinned by
+# version + SHA-256 in an `env:` block, which Dependabot cannot see. Bump that by
+# hand; the workflow file explains how.
+#
+# Dependabot pull requests are bot-authored, so invariant I4 applies in full: a
+# human reviews and merges every one. Never enable auto-merge for them.
+
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Bangkok"
+    # Supply-chain buffer: a version bump is only proposed once the release is
+    # 7 days old, which gives the community time to catch a compromised or
+    # yanked release before it reaches this repository. Security updates are not
+    # subject to cooldown — they arrive as soon as an advisory is published.
+    cooldown:
+      default-days: 7
+    # One pull request per week for all action bumps, not one per action.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    # Conventional Commits, matching .cursorrules §6.1: "ci(deps): bump ..."
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    open-pull-requests-limit: 5

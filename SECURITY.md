@@ -241,7 +241,11 @@ ANTHROPIC_API_KEY="sk-..."
 ### 4.5 Supply chain
 
 - Every third-party GitHub Action is pinned to a **full commit SHA**, never a
-  moving tag like `@v4`.
+  moving tag like `@v4`. Dependabot version updates
+  ([`.github/dependabot.yml`](.github/dependabot.yml)) keep those pins from
+  rotting. A routine bump is only proposed once the release is 7 days old, so a
+  compromised or yanked release has time to be caught upstream first. Security
+  updates skip that cooldown.
 - Every new dependency requires an ADR in `context/decisions/`. The default
   answer to a new dependency is **no**.
 - Job permissions start at `contents: read` and widen only where a job
@@ -293,12 +297,13 @@ Honesty matters more than a green checklist. Current implementation state:
 | `GITHUB_TOKEN` read-only by default | ✅ | ✅ | Actions setting: default permissions `read` |
 | Force-push / branch deletion blocked on `main` | ✅ | ✅ | GitHub branch protection |
 | `gitleaks` merge gate (generic secrets) | ✅ | ✅ | `secret-scan.yml` — required check, canary self-test every run; see §5.1 |
-| Per-job least-privilege `permissions:` blocks | ✅ | ❌ no workflows yet | Phase 3 |
-| Actions pinned to commit SHAs | ✅ | ❌ no workflows yet | Phase 3 |
+| Least-privilege `permissions:` on every workflow | ✅ | ✅ 1 of 1 | `secret-scan.yml` is read-only; every new workflow must declare its own |
+| Actions pinned to commit SHAs | ✅ | ✅ | `secret-scan.yml` pins `actions/checkout` by SHA |
+| Pins kept current | ✅ | ✅ | `dependabot.yml`: weekly, grouped, 7-day cooldown. **gitleaks binary excluded — bumped by hand** |
 | Attempt / run / timeout caps | ✅ | ❌ **not yet** | Phase 2 — `ai-router.sh` |
 | Task `files:` scope enforcement | ✅ | ❌ **not yet** | Phase 1 — `task_parser.py` |
 | Lock against concurrent task claims | ⚠️ **undecided** | ❌ | ADR-004, open question |
-| Dependabot alerts + security updates | ✅ | ✅ | Armed; nothing to scan until Phase 1 adds manifests |
+| Dependabot alerts + security updates | ✅ | ✅ | Covers GitHub Actions now; Python manifests from Phase 1 |
 
 ### 5.1 Generic secret detection — what is and is not covered
 
@@ -377,7 +382,8 @@ give any agent write access:
       that is gitignored. Never in the repository.
 - [ ] Scope your API keys to the **minimum** the pipeline needs, and set a
       spending cap with your provider.
-- [ ] Pin every action to a commit SHA.
+- [ ] Pin every action to a commit SHA, and enable Dependabot version updates
+      for `github-actions` so the pins keep receiving fixes.
 - [ ] Restrict `HERMES_ENDPOINT` to a host you control. It must never be
       settable from repository content.
 - [ ] Run agents against a **fork or a sandbox repository first**. Watch a full

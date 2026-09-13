@@ -474,6 +474,10 @@ permissions:
 1. **No `pull_request_target` with an untrusted checkout.** Fork PRs run in a
    secret-free workflow with `permissions: contents: read`.
 2. **Pin every third-party action to a full commit SHA**, never a moving tag.
+   `.github/dependabot.yml` keeps the pins current: routine bumps wait out a
+   7-day cooldown, security updates do not. Anything pinned outside a `uses:`
+   line (such as the gitleaks binary) is invisible to Dependabot and is bumped
+   by hand.
 3. **Secrets are referenced, never printed.** No `echo "${{ secrets.X }}"`, no
    secret in a URL, no secret in an artifact.
 4. **Agent-authored PRs never auto-merge.** Branch protection on `main` requires
