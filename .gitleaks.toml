@@ -1,0 +1,37 @@
+# gitleaks configuration — NexusDev
+#
+# Owner: Node 6 (Antigravity). Consumed by .github/workflows/secret-scan.yml.
+#
+# Extends the gitleaks default ruleset (222 rules as of v8.30.1) with rules for
+# secrets this project is specifically exposed to but the defaults miss.
+#
+# Rule of this file: every custom rule must have a matching canary in the
+# workflow's self-test step. A rule nobody has seen fire is not known to work.
+
+title = "NexusDev gitleaks config"
+
+[extend]
+useDefault = true
+
+# The default ruleset has no generic rule for credentials embedded in a URL;
+# its only URL-credential rule is vendor-specific (sidekiq-sensitive-url). That
+# leaves exactly the case SECURITY.md §5.1 names as this project's obvious risk:
+# a HERMES_ENDPOINT of the form scheme://user:secret@host. This rule closes it
+# for any scheme — https, postgres, redis, amqp, and so on.
+[[rules]]
+id = "url-embedded-credentials"
+description = "Credentials embedded in a URL (scheme://user:password@host)."
+regex = '''(?i)\b[a-z][a-z0-9+.-]{1,20}://[^\s:/?#@'"<>]{1,64}:([^\s/?#@'"<>]{3,128})@[a-z0-9][a-z0-9.-]*'''
+secretGroup = 1
+keywords = ["://"]
+tags = ["credentials", "url"]
+
+    # Documentation placeholders, e.g. the `https://user:pass@host` example in
+    # SECURITY.md. Templated values such as ${DB_PASSWORD} are already skipped
+    # by the default global allowlist, so they need no entry here.
+    [[rules.allowlists]]
+    description = "Documentation placeholder passwords"
+    regexTarget = "secret"
+    regexes = [
+        '''(?i)^(?:pass(?:word|wd)?|pwd|secret|changeme|example|placeholder|redacted|your[_-]?password)$''',
+    ]
