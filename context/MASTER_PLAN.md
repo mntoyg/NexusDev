@@ -426,11 +426,14 @@ INPUT: task_id
 3  lock could not be acquired within the timeout
 4  configuration error (missing required environment variable)
 
-# Environment (injected — NEVER committed)
-ANTHROPIC_API_KEY   required for the claude backend
-HERMES_ENDPOINT     e.g. http://localhost:11434 ; optional
-COMET_API_KEY       optional; absent → local JSONL fallback
-NEXUS_DRY_RUN       "1" disables all side effects
+# Environment (injected — NEVER committed). Must stay in step with .env.example.
+ANTHROPIC_API_KEY        required for the claude backend
+HERMES_ENDPOINT          e.g. http://localhost:11434 ; optional
+HERMES_MODEL             model tag for the Hermes backend; optional
+COMET_API_KEY            optional; absent → local JSONL fallback
+COMET_PROJECT            Comet project name; optional
+NEXUS_DRY_RUN            "1" disables all side effects
+NEXUS_MAX_RUNS_PER_HOUR  global run cap from §9; optional, defaults to 10
 ```
 
 ### 6.3 Mandatory properties
@@ -671,8 +674,9 @@ never edit.
 | ADR-004 | State-file locking strategy | **Open — see QUEUE-007** |
 | ADR-005 | Task-block grammar is a CI-enforced public API | Proposed (§3.2, §7.1) |
 
-Template: `context/decisions/ADR-000-template.md` — *Context · Decision ·
-Consequences · Alternatives considered*.
+Every ADR carries the same four headings — *Context · Decision · Consequences ·
+Alternatives considered*. The template file
+(`context/decisions/ADR-000-template.md`) lands with the first real ADR.
 
 ---
 
