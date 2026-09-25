@@ -224,6 +224,9 @@ ANTHROPIC_API_KEY="sk-..."
 - Secrets are referenced in workflows, never printed — no `echo` of a secret,
   no secret in a URL, no secret in an uploaded artifact.
 - GitHub secret scanning with push protection is enabled on this repository.
+- Every pull request and every push to `main` is scanned by gitleaks across
+  the full history, with findings redacted in the public CI log. Coverage
+  and its one remaining gap are spelled out in [§5.1](#51-generic-secret-detection--what-is-and-is-not-covered).
 - **If you believe a secret was ever committed**, report it privately. Do not
   open a public issue naming the file — that is a signpost for scrapers.
 
@@ -238,7 +241,11 @@ ANTHROPIC_API_KEY="sk-..."
 ### 4.5 Supply chain
 
 - Every third-party GitHub Action is pinned to a **full commit SHA**, never a
-  moving tag like `@v4`.
+  moving tag like `@v4`. Dependabot version updates
+  ([`.github/dependabot.yml`](.github/dependabot.yml)) keep those pins from
+  rotting. A routine bump is only proposed once the release is 7 days old, so a
+  compromised or yanked release has time to be caught upstream first. Security
+  updates skip that cooldown.
 - Every new dependency requires an ADR in `context/decisions/`. The default
   answer to a new dependency is **no**.
 - Job permissions start at `contents: read` and widen only where a job
@@ -289,35 +296,56 @@ Honesty matters more than a green checklist. Current implementation state:
 | Agents cannot approve pull requests | ✅ | ✅ | Actions setting: *approve PRs* disabled |
 | `GITHUB_TOKEN` read-only by default | ✅ | ✅ | Actions setting: default permissions `read` |
 | Force-push / branch deletion blocked on `main` | ✅ | ✅ | GitHub branch protection |
-| `gitleaks` merge gate (generic secrets) | ✅ | ❌ **not yet** | Phase 3 — `pr-gate.yml`; **compensating control, see note** |
-| Per-job least-privilege `permissions:` blocks | ✅ | ❌ no workflows yet | Phase 3 |
-| Actions pinned to commit SHAs | ✅ | ❌ no workflows yet | Phase 3 |
+| `gitleaks` merge gate (generic secrets) | ✅ | ✅ | `secret-scan.yml` — required check, canary self-test every run; see §5.1 |
+| Least-privilege `permissions:` on every workflow | ✅ | ✅ 1 of 1 | `secret-scan.yml` is read-only; every new workflow must declare its own |
+| Actions pinned to commit SHAs | ✅ | ✅ | `secret-scan.yml` pins `actions/checkout` by SHA |
+| Pins kept current | ✅ | ✅ | `dependabot.yml`: weekly, grouped, 7-day cooldown. **gitleaks binary excluded — bumped by hand** |
 | Attempt / run / timeout caps | ✅ | ❌ **not yet** | Phase 2 — `ai-router.sh` |
 | Task `files:` scope enforcement | ✅ | ❌ **not yet** | Phase 1 — `task_parser.py` |
 | Lock against concurrent task claims | ⚠️ **undecided** | ❌ | ADR-004, open question |
-| Dependabot alerts + security updates | ✅ | ✅ | Armed; nothing to scan until Phase 1 adds manifests |
+| Dependabot alerts + security updates | ✅ | ✅ | Covers GitHub Actions now; Python manifests from Phase 1 |
 
-### 5.1 Known gap: generic secret detection
+### 5.1 Generic secret detection — what is and is not covered
 
 GitHub's free secret scanning on public repositories matches **provider
 patterns only** — recognisable shapes such as `sk-ant-…`, `ghp_…`, or
-`AKIA…`. Generic secrets are **not** covered: private key blocks, connection
-strings with embedded credentials (a `HERMES_ENDPOINT` of the form
-`https://user:pass@host` is the obvious one here), and high-entropy strings
-that match no known vendor format.
+`AKIA…`. Extending it through GitHub requires the paid **Secret Protection**
+product: the `secret_scanning_non_provider_patterns` and
+`secret_scanning_validity_checks` settings are unavailable on this repository.
+The API accepts a request to enable them, returns `200 OK`, and leaves them
+disabled — so do not trust a successful response there; re-read the setting.
 
-Closing that gap through GitHub requires the paid **Secret Protection**
-product; the `secret_scanning_non_provider_patterns` and
-`secret_scanning_validity_checks` settings are unavailable on this
-repository. The API accepts a request to enable them, returns `200 OK`, and
-leaves them disabled — so do not trust a successful response here, re-read
-the setting to confirm.
+The compensating control is the **gitleaks gate**,
+[`.github/workflows/secret-scan.yml`](.github/workflows/secret-scan.yml). It
+runs on every pull request and every push to `main`, scans the **full git
+history**, redacts every finding in the public CI log, and is a **required
+status check** for merging. Coverage, stated precisely:
 
-**The planned compensating control is the `gitleaks` merge gate** in
-`pr-gate.yml` (Phase 3), which detects generic patterns and high-entropy
-strings with no GitHub entitlement required. Until it ships, generic secret
-detection on this repository rests on human review and the discipline in
-[§4.3](#43-secret-handling). Treat that as a real, currently-open gap.
+| Secret shape | Caught by | Verified how |
+| :--- | :--- | :--- |
+| Vendor tokens with a recognisable format (`sk-ant-…`, `ghp_…`, `AKIA…`, …) | GitHub scanning **and** gitleaks vendor rules | Upstream rulesets |
+| Private key blocks (`-----BEGIN … PRIVATE KEY-----`) | gitleaks `private-key` | Canary, every run |
+| High-entropy value assigned to a key-, token-, secret- or password-like name | gitleaks `generic-api-key` | Canary, every run |
+| Credentials embedded in a URL (`scheme://user:secret@host`) | **custom** rule `url-embedded-credentials` in [`.gitleaks.toml`](.gitleaks.toml) | Canary **and** benign negative controls, every run |
+| A bare high-entropy string with **no** key-like name around it | ❌ **not covered** | — |
+
+Two things worth knowing about how this gate was built:
+
+- **The default gitleaks ruleset would have missed the URL case.** None of its
+  222 rules detects credentials embedded in a URL generically; the only one
+  that exists is vendor-specific. That is exactly the `HERMES_ENDPOINT` risk
+  this section originally named, so the custom rule exists to close a real
+  hole, not for completeness.
+- **The gate proves it is not blind before it scans.** Every run generates
+  canaries at runtime — a fresh private key, a generic token, and a
+  credential-bearing URL — and fails unless each one is detected by its
+  intended rule and none of the benign controls is. A scanner that has never
+  been seen to fire is not known to work.
+
+The last row of the table is a real, remaining gap. A raw random string with
+nothing naming it looks the same as a hash, an ID, or a nonce, and no entropy
+threshold separates those reliably. That case rests on human review and the
+discipline in [§4.3](#43-secret-handling).
 
 **Read this table as: NexusDev is currently a specification with a scaffold.**
 The security properties it claims are design commitments, and the roadmap is the
@@ -354,7 +382,8 @@ give any agent write access:
       that is gitignored. Never in the repository.
 - [ ] Scope your API keys to the **minimum** the pipeline needs, and set a
       spending cap with your provider.
-- [ ] Pin every action to a commit SHA.
+- [ ] Pin every action to a commit SHA, and enable Dependabot version updates
+      for `github-actions` so the pins keep receiving fixes.
 - [ ] Restrict `HERMES_ENDPOINT` to a host you control. It must never be
       settable from repository content.
 - [ ] Run agents against a **fork or a sandbox repository first**. Watch a full
