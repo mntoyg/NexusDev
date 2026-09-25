@@ -198,6 +198,31 @@ The telemetry emitter survives a transient Comet outage without losing events.
 **Hard limits:** ≤ 5 files, ≤ ~200 changed lines, exactly one goal per task.
 Anything larger must be split (`TASK-042a`, `TASK-042b`).
 
+Two rules that are enforced rather than advisory. Inline `#` comments are not
+part of the grammar. And below the first task heading, a `#` or `##` heading
+closes the task list, so there is no footer section: a field stranded under one
+would never be read.
+
+**Reading and validating.** `scripts/task_parser.py` is the reference
+implementation of this grammar and the only thing allowed to interpret it:
+
+```bash
+python scripts/task_parser.py --validate                  # CI gate; no output on success
+python scripts/task_parser.py --task-id TASK-001          # one task as JSON, for the router
+python scripts/task_parser.py --status ready --compact     # everything claimable, one line
+
+# Exit codes
+#   0  success
+#   1  validation failed; every problem is printed as file:line on stderr
+#   2  --task-id named a task that does not exist
+#   3  the input file could not be read
+```
+
+Beyond per-block checks it validates the task graph as a whole: duplicate ids,
+`depends_on` pointing at a task that does not exist, and dependency cycles. A
+cycle would otherwise leave every task in it unclaimable, which the router would
+report as “nothing ready” rather than as an error.
+
 ### 3.3 `context/QUEUE.md` — the escalation buffer
 
 `QUEUE.md` exists because Claude is the most capable and most rate-limited node.
@@ -626,10 +651,11 @@ default answer is no.
 - [ ] `context/TODO.md` and `context/QUEUE.md` seeded with Phase 1 tasks
 
 ### Phase 1 — The Bus
-- [ ] `STATE.json` JSON Schema + validator
-- [ ] `scripts/task_parser.py` — task block → JSON, strict failure mode
-- [ ] `validate-context.yml` — CI enforcement of the bus schema
-- [ ] Unit tests for the grammar, including malformed-input cases
+- [x] `scripts/task_parser.py` — task block → JSON, strict failure mode
+- [x] Unit tests for the grammar, including malformed-input cases (`tests/test_task_parser.py`)
+- [x] `context/TODO.md` seeded with the remaining Phase 1 tasks
+- [ ] `STATE.json` JSON Schema + validator — TASK-001
+- [ ] `validate-context.yml` — CI enforcement of the bus schema — TASK-002
 
 ### Phase 2 — The Router
 - [ ] `scripts/ai-router.sh` per §6

@@ -94,15 +94,17 @@ DO IT YOURSELF when the task is:
 `scripts/ai-router.sh`, and executed by Aider. Formatting IS the interface —
 a malformed block is a broken build.
 
-Emit EXACTLY this shape:
+Emit EXACTLY this shape. Note there are NO inline comments: a '#' anywhere in
+a field value is rejected by the parser, because a '#' is never valid in a task
+id or a path.
 
     ### [TASK-042] Add retry-with-backoff to the Comet emitter
-    - **status:** ready            # ready | in_progress | blocked | done
-    - **complexity:** low          # low | medium | high
-    - **route:** hermes            # hermes | claude | any
+    - **status:** ready
+    - **complexity:** low
+    - **route:** hermes
     - **files:** scripts/telemetry.py, tests/test_telemetry.py
-    - **depends_on:** TASK-039     # or: none
-    - **owner:** aider             # aider | cursor | claude | human
+    - **depends_on:** none
+    - **owner:** aider
 
     **Goal**
     One sentence. What must be true when this is done.
@@ -115,6 +117,23 @@ Emit EXACTLY this shape:
     - [ ] Objectively verifiable statement
     - [ ] `pytest tests/test_telemetry.py` passes
     - [ ] No new dependency added
+
+Accepted values — the parser rejects anything else:
+
+  status:      ready | in_progress | blocked | review | done
+  complexity:  low | medium | high
+  route:       hermes | claude | any
+  owner:       aider | cursor | claude | opencode | human
+  depends_on:  one or more task ids, comma separated, or the word 'none'
+  files:       comma-separated repository-relative paths; no absolute paths,
+               no '..' segments, at most 5
+
+Before you commit an edit to context/TODO.md, run:
+
+    python scripts/task_parser.py --validate
+
+It exits 0 when every block is valid and prints file:line for each problem
+otherwise. A malformed block is a hard failure, never a skipped task.
 
 Routing hints you must set honestly — Comet measures your accuracy:
 
