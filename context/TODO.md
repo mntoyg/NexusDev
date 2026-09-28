@@ -91,3 +91,30 @@ without reading the whole MASTER_PLAN.
 - [ ] The worked example passes `python scripts/task_parser.py --validate` when pasted into TODO.md
 - [ ] Every relative link in the file resolves
 - [ ] No secret, endpoint or personal detail appears anywhere in it
+
+### [TASK-004] Implement the task lock from ADR-004
+- **status:** ready
+- **complexity:** medium
+- **route:** claude
+- **files:** scripts/task_lock.py, tests/test_task_lock.py
+- **depends_on:** none
+- **owner:** aider
+
+**Goal**
+The router can claim, release and break a task lock exactly as ADR-004 specifies,
+and the two hazards that ADR records cannot regress unnoticed.
+
+**Constraints**
+- Python, standard library only, invoked by `scripts/ai-router.sh` later. Subcommands: `claim <task-id> --run-id <id>`, `release <task-id>`, `status <task-id>`, `break <task-id> --older-than <seconds>`.
+- Claim pushes a run-unique object to `refs/nexus/lock/<task-id>` with `--force-with-lease=refs/nexus/lock/<task-id>:`. Build the object with `git commit-tree`, never reuse an existing commit sha.
+- Refuse to run the push at all if the object sha is empty, because `git push ":<ref>"` deletes the ref and would release another run's lock.
+- Exit codes: 0 claimed or released, 1 the lock is held by someone else, 3 git or the remote is unreachable. Match `scripts/task_parser.py` so the router treats all three the same way.
+- Writing `STATE.json` is out of scope for this task. The ref is the mutex; the ledger comes with the router.
+
+**Acceptance criteria**
+- [ ] Two clones of a local bare repository race to claim the same task and exactly one exits 0
+- [ ] A test proves that pushing an identical sha twice is rejected, covering the no-op hazard in ADR-004
+- [ ] A test proves an empty object sha never reaches `git push`
+- [ ] `release` makes the task claimable again, and `break --older-than` removes a lock older than the given age
+- [ ] Tests use a temporary bare repository and touch no network
+- [ ] `python -m unittest discover tests` passes and no new dependency is added
