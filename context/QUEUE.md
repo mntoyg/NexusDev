@@ -9,19 +9,11 @@ drained entry in the same commit.
 Writers are Cursor, Aider and the router. The reader is Claude. The format is
 specified in `MASTER_PLAN.md` §3.3.
 
+QUEUE-007 was drained on 2026-09-28 into [ADR-004](decisions/ADR-004-state-file-locking.md) and TASK-004.
+
 This file is **not** machine-parsed today — see QUEUE-008, which asks whether it
 should be. Unlike `context/TODO.md`, a malformed entry here degrades a human
 handover rather than breaking a build.
-
-## [QUEUE-007] Choose the state-file locking strategy
-- **Raised by:** claude
-- **Blocked on:** claude
-- **Priority:** high
-- **Raised at:** 2026-09-28T00:00:00Z
-- **Reason:** Two router runs can claim the same task concurrently. Picking the mechanism is an architecture decision with no obviously correct answer, which is exactly what `MASTER_PLAN.md` §13 records as the open ADR-004.
-- **Context:** `schemas/state.schema.json` already models an advisory lock with `held_by`, `acquired_at` and `ttl_seconds`, and `scripts/validate_state.py` deliberately treats a lock past its TTL as valid, because breaking it is the router's decision and not a schema error. GitHub Actions runners are ephemeral, so a run that dies mid-claim leaves the lock held with nobody to release it. The `trap release_lock EXIT` in `MASTER_PLAN.md` §6.3 covers a crash but not a killed runner.
-- **Options considered:** (a) the advisory lock already in the schema, with a TTL that any later run may break; (b) a Git branch as the lock, since pushing a ref is atomic and the runner already has a Git identity; (c) a single-writer daemon, which contradicts invariant I2 by introducing a component every node must wait on.
-- **Proposed direction:** (a) as the default, because the schema and validator already support it and it needs no network round trip, with (b) reserved for the case where TTL breaking proves to cause duplicate work in practice. Labelled as a proposal. Whatever is chosen must be written up as ADR-004 before `scripts/ai-router.sh` is implemented, since §6.1 step 1 depends on it.
 
 ## [QUEUE-008] Decide whether QUEUE.md should be machine-parsed
 - **Raised by:** claude

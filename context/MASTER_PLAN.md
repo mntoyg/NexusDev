@@ -420,7 +420,9 @@ file in the repository.
 
 ```
 INPUT: task_id
-  1. Acquire lock on STATE.json (TTL 900s). Contended → exit 0, another runner has it.
+  1. Claim the task by creating refs/nexus/lock/<id> with a run-unique object
+     (ADR-004). Rejected push → exit 0, another runner has it. Then record
+     held_by / acquired_at / ttl_seconds in STATE.json as the ledger.
   2. Parse the task block  →  task_parser.py --task-id <id>  →  JSON
   3. Validate: status == ready, depends_on satisfied, files <= 5. Else → blocked.
   4. Determine complexity:
@@ -465,6 +467,13 @@ NEXUS_MAX_RUNS_PER_HOUR  global run cap from §9; optional, defaults to 10
 
 - `set -euo pipefail` on line 1 after the shebang.
 - `trap 'release_lock' EXIT` — a crashed router must never wedge the pipeline.
+  That covers a crash; only the TTL covers a killed runner, so a lock past its
+  TTL may be broken by any later run, with the event sent to Comet.
+- The lock object must be **unique per run**. Two runs pushing the same sha make
+  the second push a no-op that Git reports as success, and both then believe they
+  hold the lock (ADR-004, verified by experiment).
+- Never push an empty left-hand side: `git push ":$ref"` *deletes* the ref, so a
+  failure to build the lock object would release someone else's lock.
 - Idempotent: running twice on the same task is a no-op the second time.
 - Every network call has an explicit timeout and a documented degradation path.
 - Never echoes a secret, not even in `--dry-run` or debug output.
@@ -571,7 +580,7 @@ Several agents may run at the same moment on ephemeral CI runners.
 
 | Risk | Mitigation |
 | :--- | :--- |
-| Two routers claim one task | Advisory lock in `STATE.json` (`held_by` + TTL 900s); a stale lock past TTL may be broken and the event logged |
+| Two routers claim one task | `refs/nexus/lock/<id>` pushed with `--force-with-lease=<ref>:` is the mutex — compare-and-swap on absence; `STATE.json` (`held_by` + TTL 900s) is the ledger only. The ref wins any disagreement. A stale lock past TTL may be broken and the event logged. See [ADR-004](decisions/ADR-004-state-file-locking.md) |
 | Two Aider runs edit the same file | Every task gets its own branch `agent/task-<id>`; overlapping `files:` lists are rejected at claim time |
 | `TODO.md` merge conflicts | Task blocks are append-mostly and separated by `###` headings; status edits touch a single line |
 | `STATE.json` corruption | It is a cache — delete and regenerate from `TODO.md` + Git history |
@@ -660,6 +669,8 @@ default answer is no.
 Phase 1 is complete. The bus is now parsed, validated and gated in CI.
 
 ### Phase 2 — The Router
+- [x] ADR-004 — locking strategy decided, so §6.1 step 1 is unblocked
+- [ ] `scripts/task_lock.py` — claim/release/break, with the ADR-004 experiment as tests — TASK-004
 - [ ] `scripts/ai-router.sh` per §6
 - [ ] Hermes classification backend + health check
 - [ ] Quota detection and `QUEUE.md` parking
@@ -700,7 +711,7 @@ never edit.
 | ADR-001 | Use the file system as the message bus instead of chat context | Accepted (implicit in this plan) |
 | ADR-002 | Humans hold exclusive merge authority | Accepted (invariant I4) |
 | ADR-003 | `STATE.json` is a rebuildable cache, not a source of truth | Accepted (§3.4) |
-| ADR-004 | State-file locking strategy | **Open — see QUEUE-007** |
+| [ADR-004](decisions/ADR-004-state-file-locking.md) | State-file locking: Git ref is the mutex, `STATE.json` is the ledger | **Accepted** 2026-09-28 |
 | ADR-005 | Task-block grammar is a CI-enforced public API | Proposed (§3.2, §7.1) |
 
 Every ADR carries the same four headings — *Context · Decision · Consequences ·
@@ -713,20 +724,16 @@ Alternatives considered*. The template file
 
 Tracked here until they become ADRs. Contributions welcome on any of these.
 
-1. **Locking.** Advisory lock in `STATE.json`, or Git-branch-as-lock? (ADR-004;
-   parked with a recommendation in `context/QUEUE.md` as QUEUE-007. Must be
-   resolved into an ADR before `scripts/ai-router.sh` is written, since §6.1
-   step 1 depends on it.)
-2. **Complexity classification.** Can Hermes classify accurately enough to hit
+1. **Complexity classification.** Can Hermes classify accurately enough to hit
    the 85% routing-accuracy target, or is a heuristic pre-filter needed?
-3. **Task decomposition.** Should Claude emit `TODO.md` blocks directly, or
+2. **Task decomposition.** Should Claude emit `TODO.md` blocks directly, or
    always route through Cursor so a human sees the scope first?
-4. **Multi-repo.** Does `context/` live in the target repository, or in a
+3. **Multi-repo.** Does `context/` live in the target repository, or in a
    separate orchestration repository referencing many targets?
-5. **Rollback.** When an agent-authored PR is merged and later proves wrong,
+4. **Rollback.** When an agent-authored PR is merged and later proves wrong,
    what feeds that signal back into routing? A `merged: false` telemetry field
    is not enough.
-6. **Windows parity.** Is a PowerShell port of `ai-router.sh` maintained in
+5. **Windows parity.** Is a PowerShell port of `ai-router.sh` maintained in
    parallel, or does Windows run through WSL/Git Bash only?
 
 ---
