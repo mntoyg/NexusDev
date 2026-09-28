@@ -150,6 +150,7 @@ NexusDev/
 ├── scripts/
 │   ├── task_parser.py        # Task blocks -> JSON; the grammar's reference implementation
 │   ├── validate_state.py     # Validates STATE.json against the schema
+│   ├── task_lock.py          # Task locks per ADR-004: a git ref is the mutex
 │   ├── ai-router.sh          # [planned] Load balancer: Hermes <-> Claude, telemetry to Comet
 │   └── telemetry.py          # [planned] Comet emitter
 ├── tests/                     # Runs with `python -m unittest discover tests` — no install needed
