@@ -474,6 +474,9 @@ NEXUS_MAX_RUNS_PER_HOUR  global run cap from §9; optional, defaults to 10
   hold the lock (ADR-004, verified by experiment).
 - Never push an empty left-hand side: `git push ":$ref"` *deletes* the ref, so a
   failure to build the lock object would release someone else's lock.
+- All of the above is implemented in `scripts/task_lock.py`; the router shells out
+  to it rather than reimplementing the push. A lock's age comes from its commit
+  timestamp, so a ref is breakable without consulting the ledger.
 - Idempotent: running twice on the same task is a no-op the second time.
 - Every network call has an explicit timeout and a documented degradation path.
 - Never echoes a secret, not even in `--dry-run` or debug output.
@@ -670,7 +673,7 @@ Phase 1 is complete. The bus is now parsed, validated and gated in CI.
 
 ### Phase 2 — The Router
 - [x] ADR-004 — locking strategy decided, so §6.1 step 1 is unblocked
-- [ ] `scripts/task_lock.py` — claim/release/break, with the ADR-004 experiment as tests — TASK-004
+- [x] `scripts/task_lock.py` — claim/release/status/break, with the ADR-004 experiment as tests — TASK-004
 - [ ] `scripts/ai-router.sh` per §6
 - [ ] Hermes classification backend + health check
 - [ ] Quota detection and `QUEUE.md` parking

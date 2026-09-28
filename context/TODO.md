@@ -93,7 +93,7 @@ without reading the whole MASTER_PLAN.
 - [ ] No secret, endpoint or personal detail appears anywhere in it
 
 ### [TASK-004] Implement the task lock from ADR-004
-- **status:** ready
+- **status:** done
 - **complexity:** medium
 - **route:** claude
 - **files:** scripts/task_lock.py, tests/test_task_lock.py
@@ -118,3 +118,28 @@ and the two hazards that ADR records cannot regress unnoticed.
 - [ ] `release` makes the task claimable again, and `break --older-than` removes a lock older than the given age
 - [ ] Tests use a temporary bare repository and touch no network
 - [ ] `python -m unittest discover tests` passes and no new dependency is added
+
+### [TASK-005] Sweep abandoned task lock refs
+- **status:** ready
+- **complexity:** low
+- **route:** hermes
+- **files:** .github/workflows/lock-sweep.yml
+- **depends_on:** none
+- **owner:** aider
+
+**Goal**
+A lock ref left behind by a killed runner is removed automatically, so
+`refs/nexus/lock/*` does not accumulate forever.
+
+**Constraints**
+- Scheduled workflow, hourly. Enumerate locks with `git ls-remote origin 'refs/nexus/lock/*'`.
+- For each one call `python scripts/task_lock.py break <task-id> --older-than 3600`, which already refuses to touch a younger lock.
+- The default TTL in `MASTER_PLAN.md` §3.4 is 900 seconds, so an hour is four TTLs. Breaking early would be worse than accumulating.
+- Needs `contents: write` to delete a ref, so scope that permission to the one job and to nothing else. Pin the action by SHA and pin the runner image.
+- Log every break so Comet can count them later. A rising count means runners are dying, which is a real signal and not noise.
+
+**Acceptance criteria**
+- [ ] A lock older than the threshold is deleted by a scheduled run
+- [ ] A lock younger than the threshold survives the same run
+- [ ] The job declares no permission beyond `contents: write`
+- [ ] A run with no locks present exits 0 and changes nothing
