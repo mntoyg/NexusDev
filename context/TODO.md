@@ -69,7 +69,7 @@ A pull request that breaks the grammar of `context/TODO.md` or the shape of
 - [ ] The workflow is added to the required status checks on `main`
 
 ### [TASK-003] Write CONTRIBUTING.md
-- **status:** ready
+- **status:** done
 - **complexity:** medium
 - **route:** claude
 - **files:** CONTRIBUTING.md

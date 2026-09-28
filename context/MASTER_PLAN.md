@@ -679,7 +679,8 @@ Phase 1 is complete. The bus is now parsed, validated and gated in CI.
 - [ ] Routing-accuracy feedback loop into §6.1 thresholds
 
 ### Phase 5 — The Community
-- [ ] OpenCode automation for `CONTRIBUTING.md`, templates, `docs/`
+- [x] `CONTRIBUTING.md` written — TASK-003 (by Node 1; OpenCode is not wired up yet)
+- [ ] OpenCode automation to *maintain* `CONTRIBUTING.md`, templates, `docs/`
 - [ ] `good-first-task` labelling
 - [ ] Public quickstart, ≤ 10 minutes from clone to first routed task
 
