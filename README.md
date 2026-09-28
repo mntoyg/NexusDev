@@ -144,15 +144,19 @@ NexusDev/
 │   ├── QUEUE.md              #   [planned] Tasks parked for Claude quota reset
 │   ├── STATE.json            #   [planned] Machine-readable pipeline state
 │   └── decisions/            #   Architecture Decision Records (ADRs)
+├── schemas/
+│   └── state.schema.json     # Shape of STATE.json; validate_state.py interprets it, never restates it
 ├── scripts/
 │   ├── task_parser.py        # Task blocks -> JSON; the grammar's reference implementation
+│   ├── validate_state.py     # Validates STATE.json against the schema
 │   ├── ai-router.sh          # [planned] Load balancer: Hermes <-> Claude, telemetry to Comet
 │   └── telemetry.py          # [planned] Comet emitter
 ├── tests/                     # Runs with `python -m unittest discover tests` — no install needed
 ├── .github/
 │   ├── dependabot.yml        # Keeps the pinned action SHAs current
 │   ├── workflows/
-│   │   └── secret-scan.yml   # gitleaks merge gate (required status check)
+│   │   ├── secret-scan.yml   # gitleaks merge gate (required status check)
+│   │   └── validate-context.yml   # Bus grammar + state schema + unit tests
 │   ├── ISSUE_TEMPLATE/       # [planned] OpenCode-generated
 │   └── PULL_REQUEST_TEMPLATE.md   # [planned]
 ├── metrics/                  # Comet output (JSONL, gitignored)
