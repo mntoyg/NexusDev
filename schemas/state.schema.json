@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mntoyg/NexusDev/blob/main/schemas/state.schema.json",
+  "title": "NexusDev pipeline state",
+  "description": "Shape of context/STATE.json, specified in MASTER_PLAN.md 3.4. This file is the single source of truth: scripts/validate_state.py interprets it rather than restating its rules, and refuses to run if it contains a keyword the validator does not implement. STATE.json itself is a rebuildable cache, so its absence is valid.",
+  "type": "object",
+  "required": ["schema_version", "updated_at", "updated_by", "lock", "quota", "tasks"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "description": "Semantic version of this schema. A consumer that does not recognise the major version must refuse to act on the file.",
+      "type": "string",
+      "pattern": "^[0-9]+[.][0-9]+[.][0-9]+$"
+    },
+    "updated_at": {
+      "description": "UTC timestamp of the last write.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "updated_by": {
+      "description": "Which node performed the last write. Node names come from MASTER_PLAN.md 3.1.",
+      "enum": ["ai-router", "aider", "cursor", "claude", "opencode", "human"]
+    },
+    "lock": {
+      "description": "Advisory lock guarding task claims. MASTER_PLAN.md 9: a lock past its TTL may be broken, and breaking it is the router's decision, not a schema error.",
+      "type": "object",
+      "required": ["held_by", "acquired_at", "ttl_seconds"],
+      "additionalProperties": false,
+      "properties": {
+        "held_by": {
+          "description": "Run identifier holding the lock, or null when free.",
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "acquired_at": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
+        "ttl_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        }
+      }
+    },
+    "quota": {
+      "description": "Live availability of each backend, so the router can park work instead of burning retries.",
+      "type": "object",
+      "required": ["claude", "hermes"],
+      "additionalProperties": false,
+      "properties": {
+        "claude": {
+          "type": "object",
+          "required": ["state", "resets_at"],
+          "additionalProperties": false,
+          "properties": {
+            "state": {"enum": ["available", "exhausted", "unknown"]},
+            "resets_at": {
+              "description": "When an exhausted quota returns, or null when not known.",
+              "type": ["string", "null"],
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+            }
+          }
+        },
+        "hermes": {
+          "type": "object",
+          "required": ["state", "endpoint_healthy"],
+          "additionalProperties": false,
+          "properties": {
+            "state": {"enum": ["available", "exhausted", "unknown"]},
+            "endpoint_healthy": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "tasks": {
+      "description": "Per-task runtime state, keyed by the task id used in context/TODO.md.",
+      "type": "object",
+      "propertyNames": {"pattern": "^TASK-[0-9]+[a-z]?$"},
+      "additionalProperties": {
+        "type": "object",
+        "required": ["status", "route", "assigned_to", "branch", "started_at", "attempts", "pr"],
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "description": "Lifecycle position from MASTER_PLAN.md 4. Must agree with the block in context/TODO.md.",
+            "enum": ["ready", "in_progress", "blocked", "review", "done"]
+          },
+          "route": {"enum": ["hermes", "claude", "any"]},
+          "assigned_to": {"enum": ["aider", "cursor", "claude", "opencode", "human", null]},
+          "branch": {
+            "description": "Agent working branch, or null before a claim.",
+            "type": ["string", "null"],
+            "pattern": "^agent/task-[0-9]+[a-z]?$"
+          },
+          "started_at": {
+            "type": ["string", "null"],
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+          },
+          "attempts": {
+            "description": "MASTER_PLAN.md 4: three attempts force the task to blocked, so a higher count means the cap was bypassed.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3
+          },
+          "pr": {
+            "description": "Pull request number once one is open, else null.",
+            "type": ["integer", "null"],
+            "minimum": 1
+          }
+        }
+      }
+    }
+  }
+}

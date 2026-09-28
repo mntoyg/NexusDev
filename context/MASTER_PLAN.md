@@ -152,7 +152,7 @@ here is a breaking change and requires an ADR.
 | `context/MASTER_PLAN.md` | Claude | all | Replace-in-place, versioned |
 | `context/TODO.md` | Cursor, Claude | Aider, Hermes, router | Append + status edits |
 | `context/QUEUE.md` | Cursor, Aider, router | Claude | Append-only; Claude drains |
-| `context/STATE.json` | router, Aider | all | Atomic replace under lock |
+| `context/STATE.json` | router, Aider | all | Atomic replace under lock; shape in `schemas/state.schema.json` |
 | `context/decisions/ADR-*.md` | Claude | all | **Immutable** once merged |
 | `metrics/*.jsonl` | Comet emitter | dashboards | Append-only |
 
@@ -477,7 +477,7 @@ NEXUS_MAX_RUNS_PER_HOUR  global run cap from §9; optional, defaults to 10
 
 | Workflow | Trigger | Does |
 | :--- | :--- | :--- |
-| `validate-context.yml` | PR touching `context/**` | Parses `TODO.md`/`QUEUE.md`/`STATE.json`; fails on malformed blocks. **The bus schema is CI-enforced.** |
+| `validate-context.yml` ✅ | `pull_request`, `push` to `main`, manual | Runs `task_parser.py --validate`, `validate_state.py` and the unit suite, after a self-test proving both validators still reject bad input. **The bus schema is CI-enforced.** No `paths:` filter — a filtered required check never reports and blocks the PR forever. |
 | `agent-dispatch.yml` | Issue labelled `ai-task`, or manual dispatch | Converts the issue into a `TODO.md` task block, commits it |
 | `agent-execute.yml` | Push to `context/TODO.md` on `main`, plus hourly cron | Runs `ai-router.sh` for each `ready` task, invokes Aider, opens PRs |
 | `queue-drain.yml` | Cron every 6h | If Claude quota is available, drains `QUEUE.md` and opens an architecture PR |
@@ -654,8 +654,10 @@ default answer is no.
 - [x] `scripts/task_parser.py` — task block → JSON, strict failure mode
 - [x] Unit tests for the grammar, including malformed-input cases (`tests/test_task_parser.py`)
 - [x] `context/TODO.md` seeded with the remaining Phase 1 tasks
-- [ ] `STATE.json` JSON Schema + validator — TASK-001
-- [ ] `validate-context.yml` — CI enforcement of the bus schema — TASK-002
+- [x] `STATE.json` JSON Schema + validator (`schemas/state.schema.json`, `scripts/validate_state.py`) — TASK-001
+- [x] `validate-context.yml` — CI enforcement of the bus schema — TASK-002
+
+Phase 1 is complete. The bus is now parsed, validated and gated in CI.
 
 ### Phase 2 — The Router
 - [ ] `scripts/ai-router.sh` per §6

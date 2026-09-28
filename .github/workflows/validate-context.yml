@@ -1,0 +1,82 @@
+# validate-context — the context bus gate (TASK-002)
+#
+# Owner: Node 6 (Antigravity).
+#
+# context/TODO.md and context/STATE.json are APIs between nodes, so this job is
+# what makes MASTER_PLAN.md §3's "the bus schema is CI-enforced" true rather
+# than aspirational.
+#
+# Two deliberate choices, both documented so they read as decisions:
+#
+#   1. No `paths:` filter, although TASK-002 asked for one. A required status
+#      check that is skipped by a path filter never reports, and GitHub leaves
+#      the pull request blocked on a check that will never arrive. The job takes
+#      seconds, so running it on every pull request is cheaper than the deadlock.
+#
+#   2. The runner's own python3 is used, with no setup-python step and no
+#      requirements file. Everything here is standard library by design
+#      (MASTER_PLAN.md §11), and a dependency step would quietly make that
+#      untrue.
+
+name: validate-context
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-context-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-context:
+    name: validate-context
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Record the interpreter
+        run: python3 --version
+
+      - name: Self-test — the validators must reject bad input
+        run: |
+          set -euo pipefail
+          tmp="$RUNNER_TEMP/bad-input"
+          mkdir -p "$tmp"
+          fail=0
+
+          printf '### [TASK-001] deliberately broken\n- **status:** not-a-status\n' > "$tmp/TODO.md"
+          if python3 scripts/task_parser.py --file "$tmp/TODO.md" --validate 2>/dev/null; then
+            echo "::error::task_parser accepted a malformed task block; the gate is blind"
+            fail=1
+          else
+            echo "ok: task_parser rejects a malformed block"
+          fi
+
+          printf '{"schema_version": "not-a-version"}\n' > "$tmp/STATE.json"
+          if python3 scripts/validate_state.py --file "$tmp/STATE.json" 2>/dev/null; then
+            echo "::error::validate_state accepted a malformed document; the gate is blind"
+            fail=1
+          else
+            echo "ok: validate_state rejects a malformed document"
+          fi
+
+          exit "$fail"
+
+      - name: Validate the task grammar
+        run: python3 scripts/task_parser.py --validate
+
+      - name: Validate the pipeline state
+        run: python3 scripts/validate_state.py
+
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -v

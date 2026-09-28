@@ -282,13 +282,30 @@ class CommandLine(unittest.TestCase):
         self.assertIn("cannot read", err)
 
     def test_status_filter(self) -> None:
-        import json
+        """Filter behaviour, tested against a fixture rather than the real backlog.
 
-        code, out, err = self.run_main(["--file", str(REPO_ROOT / "context" / "TODO.md"), "--status", "blocked"])
-        self.assertEqual(0, code, err)
-        tasks = json.loads(out)
-        self.assertTrue(tasks, "expected at least one blocked task in the seeded TODO.md")
-        self.assertTrue(all(task["status"] == "blocked" for task in tasks))
+        An earlier version of this test asserted that the seeded TODO.md
+        contained a blocked task. It passed until TASK-002 was completed, then
+        failed for a reason that had nothing to do with the parser. A test
+        coupled to mutable project content breaks whenever the work advances.
+        """
+        import json
+        import tempfile
+
+        block = "### " + VALID.split("### ", 1)[1]
+        blocked = block.replace("TASK-042", "TASK-043").replace("- **status:** ready", "- **status:** blocked")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "TODO.md"
+            path.write_text(block + "\n" + blocked, encoding="utf-8")
+
+            code, out, err = self.run_main(["--file", str(path), "--status", "blocked"])
+            self.assertEqual(0, code, err)
+            tasks = json.loads(out)
+            self.assertEqual(["TASK-043"], [task["id"] for task in tasks])
+
+            code, out, err = self.run_main(["--file", str(path)])
+            self.assertEqual(0, code, err)
+            self.assertEqual(["TASK-042", "TASK-043"], [task["id"] for task in json.loads(out)])
 
     def test_compact_output_is_one_line(self) -> None:
         code, out, _ = self.run_main(["--file", str(REPO_ROOT / "context" / "TODO.md"), "--compact"])

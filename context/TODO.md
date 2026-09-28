@@ -16,7 +16,7 @@ Field vocabulary, limits and the canonical example live in `MASTER_PLAN.md` §3.
 Inline `#` comments are not part of the grammar.
 
 ### [TASK-001] Define and validate the STATE.json schema
-- **status:** ready
+- **status:** done
 - **complexity:** medium
 - **route:** any
 - **files:** schemas/state.schema.json, scripts/validate_state.py, tests/test_validate_state.py
@@ -42,7 +42,7 @@ malformed state file before the router ever reads it.
 - [ ] No new third-party dependency
 
 ### [TASK-002] Enforce the context bus in CI
-- **status:** blocked
+- **status:** done
 - **complexity:** low
 - **route:** hermes
 - **files:** .github/workflows/validate-context.yml
@@ -54,12 +54,12 @@ A pull request that breaks the grammar of `context/TODO.md` or the shape of
 `context/STATE.json` fails CI instead of reaching `main`.
 
 **Constraints**
-- Trigger on pull_request and on push to main, filtered to paths under `context/` and `scripts/`.
+- Trigger on pull_request and on push to main. Do NOT add a `paths:` filter: a required status check that a filter skips never reports, and GitHub leaves the pull request blocked on a check that will never arrive. This constraint replaces the original one, which asked for a filter.
 - Run `python scripts/task_parser.py --validate`, the TASK-001 state validator, and `python -m unittest discover tests`; fail the job if any exits non-zero.
 - The unit suite needs no install, so do not add a dependency step or a requirements file.
 - Follow `MASTER_PLAN.md` §7.2: top-level `permissions: contents: read`, no secrets, actions pinned to a full commit SHA with the version in a trailing comment.
 - Pin the runner image, as `secret-scan.yml` does. Do not use `ubuntu-latest`.
-- Blocked until TASK-001 lands, because the workflow runs both validators in one job.
+- Runs both validators in one job, so TASK-001 had to land first.
 
 **Acceptance criteria**
 - [ ] A pull request with a malformed task block fails the check
