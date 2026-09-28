@@ -142,7 +142,7 @@ NexusDev/
 ├── context/                  # ⭐ The shared state bus — the heart of NexusDev
 │   ├── MASTER_PLAN.md        #   Architecture, tech stack, contracts (Claude-owned)
 │   ├── TODO.md               #   Executable micro-tasks (Cursor → Aider)
-│   ├── QUEUE.md              #   [planned] Tasks parked for Claude quota reset
+│   ├── QUEUE.md              #   Tasks parked for Claude quota reset
 │   ├── STATE.json            #   [planned] Machine-readable pipeline state
 │   └── decisions/            #   Architecture Decision Records (ADRs)
 ├── schemas/
