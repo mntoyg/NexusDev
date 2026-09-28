@@ -28,6 +28,11 @@ venv/
 .aider*
 !.aider.conf.yml.example
 
+# --- Other tools' scratch worktrees ---
+# Registered git worktrees are already excluded from status, but an abandoned
+# one left behind as plain files would otherwise be committed wholesale.
+.kilo/
+
 # --- OS / editor ---
 .DS_Store
 Thumbs.db

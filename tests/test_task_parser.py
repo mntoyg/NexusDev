@@ -230,13 +230,20 @@ class DocumentedExamples(unittest.TestCase):
         self.assertEqual([], [p.render(source) for p in problems])
         self.assertEqual(1, len(tasks), f"expected exactly one example task in {source}")
 
-    def test_master_plan_example(self) -> None:
-        text = (REPO_ROOT / "context" / "MASTER_PLAN.md").read_text(encoding="utf-8")
+    def fenced_example(self, relative: str) -> str:
+        text = (REPO_ROOT / relative).read_text(encoding="utf-8")
         marker = "```markdown"
         start = text.index(marker) + len(marker)
         block = text[start:text.index("```", start)]
-        self.assertIn("### [TASK-", block, "MASTER_PLAN 3.2 example moved")
-        self.assertExampleParses(block, "context/MASTER_PLAN.md")
+        self.assertIn("### [TASK-", block, f"{relative}: the task block example moved")
+        return block
+
+    def test_master_plan_example(self) -> None:
+        self.assertExampleParses(self.fenced_example("context/MASTER_PLAN.md"), "context/MASTER_PLAN.md")
+
+    def test_contributing_example(self) -> None:
+        """TASK-003 requires the worked example to validate when pasted into TODO.md."""
+        self.assertExampleParses(self.fenced_example("CONTRIBUTING.md"), "CONTRIBUTING.md")
 
     def test_cursorrules_example(self) -> None:
         import textwrap
@@ -252,7 +259,7 @@ class DocumentedExamples(unittest.TestCase):
         self.assertExampleParses(block, ".cursorrules")
 
     def test_examples_carry_no_inline_comments(self) -> None:
-        for name in (".cursorrules", "context/MASTER_PLAN.md"):
+        for name in (".cursorrules", "context/MASTER_PLAN.md", "CONTRIBUTING.md"):
             text = (REPO_ROOT / name).read_text(encoding="utf-8")
             for line in text.splitlines():
                 if line.strip().startswith("- **") and ":**" in line:
