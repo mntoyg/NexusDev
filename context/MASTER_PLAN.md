@@ -713,7 +713,10 @@ Alternatives considered*. The template file
 
 Tracked here until they become ADRs. Contributions welcome on any of these.
 
-1. **Locking.** Advisory lock in `STATE.json`, or Git-branch-as-lock? (ADR-004)
+1. **Locking.** Advisory lock in `STATE.json`, or Git-branch-as-lock? (ADR-004;
+   parked with a recommendation in `context/QUEUE.md` as QUEUE-007. Must be
+   resolved into an ADR before `scripts/ai-router.sh` is written, since §6.1
+   step 1 depends on it.)
 2. **Complexity classification.** Can Hermes classify accurately enough to hit
    the 85% routing-accuracy target, or is a heuristic pre-filter needed?
 3. **Task decomposition.** Should Claude emit `TODO.md` blocks directly, or
