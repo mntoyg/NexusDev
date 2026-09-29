@@ -34,6 +34,7 @@ MAX_RUNS_PER_HOUR="${NEXUS_MAX_RUNS_PER_HOUR:-10}"
 HERMES_ENDPOINT="${HERMES_ENDPOINT:-}"
 HERMES_MODEL="${HERMES_MODEL:-hermes-local}"
 METRICS_FILE="$REPO_ROOT/metrics/runs.jsonl"
+STATE_FILE="$REPO_ROOT/context/STATE.json"
 
 RUN_ID="router-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 LOCK_HELD=0
@@ -85,6 +86,9 @@ release_lock() {
   local code=$?
   if [ "$LOCK_HELD" = "1" ] && [ "$DRY_RUN" != "1" ]; then
     "$PYTHON" "$SCRIPT_DIR/task_lock.py" release "$TASK_ID" >/dev/null 2>&1 || log "warning: could not release the lock on $TASK_ID"
+    # Clear the ledger's lock fields too, so a reader does not see a holder that
+    # the refs say is gone. The ref is the truth; this keeps the cache honest.
+    "$PYTHON" "$SCRIPT_DIR/state_ledger.py" unlock --file "$STATE_FILE" >/dev/null 2>&1 || true
     LOCK_HELD=0
   fi
   emit_telemetry "$OUTCOME" "$code"
@@ -318,13 +322,55 @@ case "$claim_code" in
   *) OUTCOME="lock_error"; die "could not acquire the lock on $TASK_ID" 3 ;;
 esac
 
-# ------------------------------------------------------------------- handoff ---
-# §6.1 steps 7 and 8. Writing the ledger and invoking Aider both belong to
-# Phase 3; until then the router reports the decision it reached and releases.
-# Saying so beats pretending the handoff happened.
+# ------------------------------------------------------------- ledger (step 7) ---
 log "claimed $TASK_ID; routed to $BACKEND"
-printf 'task=%s backend=%s model=%s run=%s\n' "$TASK_ID" "$BACKEND" "$ROUTED_MODEL" "$RUN_ID"
-log "next: export NEXUS_ROUTED_MODEL=$ROUTED_MODEL and invoke Aider (Phase 3)"
-log "ledger write to context/STATE.json also lands in Phase 3"
-OUTCOME="routed"
+BRANCH="agent/task-$(printf '%s' "$TASK_ID" | sed 's/^TASK-//' | tr 'A-Z' 'a-z')"
+
+# The ledger is a cache, never a gate (ADR-004). A failed write must not make a
+# held lock look free, so this warns and carries on rather than aborting.
+if ! "$PYTHON" "$SCRIPT_DIR/state_ledger.py" claim "$TASK_ID" \
+      --run-id "$RUN_ID" --branch "$BRANCH" --route "$BACKEND" --ttl 900 \
+      --file "$STATE_FILE" >/dev/null; then
+  log "warning: could not record $TASK_ID in the ledger; the ref still holds the claim"
+fi
+
+# ------------------------------------------------------------ handoff (step 8) ---
+# The executor is configured, not hardcoded. §6.1 says "hand off to Aider", but a
+# router that names one tool cannot be tested without installing it, and cannot be
+# swapped when Phase 3 decides how Aider is actually invoked. NEXUS_EXECUTOR_CMD
+# receives the decision through the environment.
+printf 'task=%s backend=%s model=%s branch=%s run=%s\n' "$TASK_ID" "$BACKEND" "$ROUTED_MODEL" "$BRANCH" "$RUN_ID"
+
+if [ -z "${NEXUS_EXECUTOR_CMD:-}" ]; then
+  # Nothing ran, so the task must go back to being claimable. Leaving it
+  # in_progress would strand it there for good once the lock is released.
+  log "no NEXUS_EXECUTOR_CMD configured; nothing executed"
+  "$PYTHON" "$SCRIPT_DIR/state_ledger.py" finish "$TASK_ID" --status ready --file "$STATE_FILE" >/dev/null || true
+  OUTCOME="no_executor"
+  exit 0
+fi
+
+log "handing off to the configured executor"
+set +e
+NEXUS_TASK_ID="$TASK_ID" \
+NEXUS_ROUTED_MODEL="$ROUTED_MODEL" \
+NEXUS_BACKEND="$BACKEND" \
+NEXUS_BRANCH="$BRANCH" \
+NEXUS_RUN_ID="$RUN_ID" \
+  sh -c "$NEXUS_EXECUTOR_CMD"
+executor_code=$?
+set -e
+
+if [ "$executor_code" -eq 0 ]; then
+  log "executor finished; $TASK_ID moves to review"
+  "$PYTHON" "$SCRIPT_DIR/state_ledger.py" finish "$TASK_ID" --status review --file "$STATE_FILE" >/dev/null || true
+  OUTCOME="executed"
+  exit 0
+fi
+
+# §4: a failed attempt blocks the task rather than retrying here. The attempt
+# counter in the ledger is what enforces the cap of three across runs.
+log "executor failed with exit $executor_code; $TASK_ID moves to blocked"
+"$PYTHON" "$SCRIPT_DIR/state_ledger.py" finish "$TASK_ID" --status blocked --file "$STATE_FILE" >/dev/null || true
+OUTCOME="executor_failed"
 exit 0

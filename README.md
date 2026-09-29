@@ -150,6 +150,7 @@ NexusDev/
 ├── scripts/
 │   ├── task_parser.py        # Task blocks -> JSON; the grammar's reference implementation
 │   ├── validate_state.py     # Validates STATE.json against the schema
+│   ├── state_ledger.py       # Records the claim in STATE.json; validated, atomic
 │   ├── task_lock.py          # Task locks per ADR-004: a git ref is the mutex
 │   ├── ai-router.sh          # Load balancer: routes a task, claims its lock, emits telemetry
 │   └── telemetry.py          # [planned] Comet emitter
