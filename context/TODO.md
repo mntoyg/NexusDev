@@ -143,3 +143,30 @@ A lock ref left behind by a killed runner is removed automatically, so
 - [ ] A lock younger than the threshold survives the same run
 - [ ] The job declares no permission beyond `contents: write`
 - [ ] A run with no locks present exits 0 and changes nothing
+
+### [TASK-006] Ask Hermes to classify tasks routed as any
+- **status:** ready
+- **complexity:** medium
+- **route:** claude
+- **files:** scripts/hermes_classify.py, tests/test_hermes_classify.py
+- **depends_on:** none
+- **owner:** aider
+
+**Goal**
+A task with `route: any` gets its complexity judged by the local model instead of
+being decided by the declared `complexity` field alone, which is what
+`MASTER_PLAN.md` §6.1 step 4 actually asks for.
+
+**Constraints**
+- Standard library only. Talk to `HERMES_ENDPOINT` over HTTP with `urllib.request` and an explicit 10 second timeout.
+- Print exactly one of `low`, `medium` or `high` on stdout and nothing else, so `ai-router.sh` can consume it without parsing prose.
+- Any failure at all, including an unparseable answer, exits non-zero and prints nothing on stdout. The router must fall back to the declared complexity rather than trust a guess.
+- Send only the task metadata the classifier needs. Never send a secret, a file path outside the task block, or file contents.
+- Record the model's answer next to the declared value so Comet can measure routing accuracy against the 85% target in §8.1.
+
+**Acceptance criteria**
+- [ ] A stubbed endpoint returning `low` makes the classifier print `low` and exit 0
+- [ ] A stubbed endpoint returning prose exits non-zero and prints nothing
+- [ ] A connection refused or a timeout exits non-zero within the timeout budget
+- [ ] Tests use a local `http.server` stub and touch no network
+- [ ] `python -m unittest discover tests` passes and no new dependency is added

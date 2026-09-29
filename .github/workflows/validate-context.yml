@@ -78,5 +78,11 @@ jobs:
       - name: Validate the pipeline state
         run: python3 scripts/validate_state.py
 
+      - name: Shellcheck
+        run: |
+          set -euo pipefail
+          shellcheck --version
+          shellcheck -S warning scripts/*.sh
+
       - name: Unit tests
         run: python3 -m unittest discover -s tests -v
