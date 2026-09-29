@@ -34,7 +34,6 @@ MAX_RUNS_PER_HOUR="${NEXUS_MAX_RUNS_PER_HOUR:-10}"
 HERMES_ENDPOINT="${HERMES_ENDPOINT:-}"
 HERMES_MODEL="${HERMES_MODEL:-hermes-local}"
 METRICS_FILE="$REPO_ROOT/metrics/runs.jsonl"
-STATE_FILE="$REPO_ROOT/context/STATE.json"
 
 RUN_ID="router-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 LOCK_HELD=0
