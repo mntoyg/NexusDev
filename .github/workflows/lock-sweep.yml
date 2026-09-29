@@ -1,0 +1,98 @@
+# lock-sweep — remove abandoned task locks (TASK-005)
+#
+# Owner: Node 6 (Antigravity).
+#
+# ADR-004 made a git ref the task mutex. A run that is killed rather than merely
+# crashing never reaches its release, so the ref survives with nobody holding it.
+# `trap release_lock EXIT` covers a crash; only a TTL covers a SIGKILL, and only
+# something outside the dead run can act on that TTL. This is that something.
+#
+# This is the only workflow in the repository that asks for write access, so the
+# reasons are spelled out rather than assumed:
+#
+#   - `contents: write` is required to delete a ref, and is declared on the one
+#     job that needs it. Nothing else here gets it.
+#   - `persist-credentials` is left at its default of true, unlike
+#     secret-scan.yml and validate-context.yml which set it false. The push that
+#     deletes the lock has to authenticate. The trade is deliberate: a token is
+#     left in the local git config for the life of a job that runs no
+#     third-party action and no untrusted input.
+#   - The sweeper never breaks a young lock. `task_lock.py break` refuses below
+#     the threshold, so a live run cannot be robbed of its claim by this job.
+#
+# The threshold is four TTLs. MASTER_PLAN.md §3.4 puts the default TTL at 900
+# seconds, and breaking early would be worse than letting a ref accumulate for
+# another hour.
+
+name: lock-sweep
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      older_than:
+        description: "Break locks older than this many seconds"
+        required: false
+        default: "3600"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lock-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: sweep
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Sweep abandoned locks
+        env:
+          OLDER_THAN: ${{ inputs.older_than || '3600' }}
+        run: |
+          set -euo pipefail
+
+          case "$OLDER_THAN" in
+            ''|*[!0-9]*)
+              echo "::error::older_than must be a whole number of seconds, got '$OLDER_THAN'"
+              exit 1
+              ;;
+          esac
+
+          locks=$(git ls-remote origin 'refs/nexus/lock/*' | awk '{print $2}' | sed 's#^refs/nexus/lock/##')
+          if [ -z "$locks" ]; then
+            echo "no locks present; nothing to sweep"
+            exit 0
+          fi
+
+          echo "locks found:"
+          printf '  %s\n' $locks
+
+          broken=0
+          kept=0
+          failed=0
+          for task in $locks; do
+            set +e
+            python3 scripts/task_lock.py break "$task" --older-than "$OLDER_THAN"
+            code=$?
+            set -e
+            case "$code" in
+              0) broken=$((broken + 1)) ;;
+              1) kept=$((kept + 1)) ;;
+              *) echo "::error::sweeping $task failed with exit $code"; failed=$((failed + 1)) ;;
+            esac
+          done
+
+          # Counted rather than merely logged: a rising number of breaks means
+          # runners are dying, which is a real signal for Comet and not noise.
+          echo "swept: broken=$broken kept=$kept failed=$failed"
+          echo "lock_sweep broken=$broken kept=$kept failed=$failed" >> "$GITHUB_STEP_SUMMARY"
+          [ "$failed" -eq 0 ]

@@ -120,7 +120,7 @@ and the two hazards that ADR records cannot regress unnoticed.
 - [ ] `python -m unittest discover tests` passes and no new dependency is added
 
 ### [TASK-005] Sweep abandoned task lock refs
-- **status:** ready
+- **status:** done
 - **complexity:** low
 - **route:** hermes
 - **files:** .github/workflows/lock-sweep.yml

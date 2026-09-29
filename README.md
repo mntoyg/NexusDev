@@ -158,7 +158,8 @@ NexusDev/
 │   ├── dependabot.yml        # Keeps the pinned action SHAs current
 │   ├── workflows/
 │   │   ├── secret-scan.yml   # gitleaks merge gate (required status check)
-│   │   └── validate-context.yml   # Bus grammar + state schema + unit tests
+│   │   ├── validate-context.yml   # Bus grammar + state schema + unit tests
+│   │   └── lock-sweep.yml     # Hourly: breaks locks left by killed runners
 │   ├── ISSUE_TEMPLATE/       # [planned] OpenCode-generated
 │   └── PULL_REQUEST_TEMPLATE.md   # [planned]
 ├── metrics/                  # Comet output (JSONL, gitignored)
