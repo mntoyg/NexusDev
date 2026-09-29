@@ -439,8 +439,17 @@ INPUT: task_id
        medium  → Claude if quota available, else Hermes, else park
        high    → Claude only. Quota exhausted → append to QUEUE.md, exit 0.
   6. Health-check the chosen backend (timeout 10s). Unhealthy → next tier down.
-  7. Write STATE.json: status=in_progress, assigned_to, branch, started_at.
-  8. Export NEXUS_ROUTED_MODEL and hand off to Aider.
+  7. Record the claim in STATE.json via state_ledger.py: status=in_progress,
+     assigned_to, branch, started_at, attempts. The write is validated against
+     schemas/state.schema.json and replaced atomically, and a failure only
+     warns — the ledger is a cache, never a gate (ADR-004).
+  8. Hand off to the executor named by NEXUS_EXECUTOR_CMD, passing the decision
+     through NEXUS_TASK_ID / NEXUS_ROUTED_MODEL / NEXUS_BACKEND / NEXUS_BRANCH /
+     NEXUS_RUN_ID. The executor is configured rather than hardcoded to Aider: a
+     router naming one tool cannot be tested without installing it. No executor
+     configured → the task returns to ready, because nothing ran and leaving it
+     in_progress would strand it once the lock is released. Executor exits 0 →
+     review; non-zero → blocked, per §4.
   9. On exit: emit telemetry (backend, tokens, duration, exit code) to Comet.
  10. Release the lock. ALWAYS — trap EXIT.
 ```
@@ -462,6 +471,7 @@ INPUT: task_id
 ANTHROPIC_API_KEY        required for the claude backend
 HERMES_ENDPOINT          e.g. http://localhost:11434 ; optional
 HERMES_MODEL             model tag for the Hermes backend; optional
+NEXUS_EXECUTOR_CMD       command the router hands off to; absent → nothing executes
 COMET_API_KEY            optional; absent → local JSONL fallback
 COMET_PROJECT            Comet project name; optional
 NEXUS_DRY_RUN            "1" disables all side effects
@@ -686,10 +696,11 @@ Phase 1 is complete. The bus is now parsed, validated and gated in CI.
 - [x] Quota detection and `QUEUE.md` parking
 - [x] `shellcheck` in CI; shell behaviour driven by `unittest` rather than `bats` (see §11)
 - [ ] Hermes *classification* for tasks with `route: any` (§6.1 step 4) — TASK-006
-- [ ] `STATE.json` ledger write and the Aider handoff (§6.1 steps 7-8) — Phase 3
+- [x] `STATE.json` ledger write via `scripts/state_ledger.py` (§6.1 step 7)
+- [x] Executor handoff through `NEXUS_EXECUTOR_CMD` (§6.1 step 8)
 
 ### Phase 3 — The Executor
-- [ ] `agent-execute.yml` — router → Aider → PR
+- [ ] `agent-execute.yml` — router → Aider → PR, by setting `NEXUS_EXECUTOR_CMD` — TASK-007
 - [ ] `agent-dispatch.yml` — issue → task block
 - [x] Branch protection on `main` enforcing invariant I4 (see `SECURITY.md` §5)
 - [x] `secret-scan.yml` — gitleaks merge gate, pulled forward into Phase 0 (see `SECURITY.md` §5.1)

@@ -170,3 +170,31 @@ being decided by the declared `complexity` field alone, which is what
 - [ ] A connection refused or a timeout exits non-zero within the timeout budget
 - [ ] Tests use a local `http.server` stub and touch no network
 - [ ] `python -m unittest discover tests` passes and no new dependency is added
+
+### [TASK-007] Run the router and Aider in CI
+- **status:** ready
+- **complexity:** high
+- **route:** claude
+- **files:** .github/workflows/agent-execute.yml
+- **depends_on:** none
+- **owner:** aider
+
+**Goal**
+A `ready` task in `context/TODO.md` becomes an agent-authored pull request without
+anyone running a command locally.
+
+**Constraints**
+- Trigger on workflow_dispatch with a task id, and on an hourly schedule that picks the oldest `ready` task whose dependencies are `done`.
+- Invoke `scripts/ai-router.sh --task-id <id>` and set `NEXUS_EXECUTOR_CMD` to the Aider invocation. Do not reimplement routing, locking or the ledger in YAML.
+- Pass the model through `NEXUS_ROUTED_MODEL`, which the router already exports to the executor. Aider must never choose its own backend.
+- Aider gets `--yes` only inside CI, and its edit scope is limited to the task's `files:` list. A task escaping that list is the vulnerability `SECURITY.md` §3 names.
+- `permissions`: `contents: write` and `pull-requests: write` on the one job that needs them, nothing wider. Never `pull_request_target`.
+- `ANTHROPIC_API_KEY` comes from Actions secrets and must never be echoed, including into the pull request body.
+- The job must not auto-merge. Invariant I4 stands: a human merges every pull request, including this one.
+
+**Acceptance criteria**
+- [ ] A manual dispatch on a `ready` task opens a pull request from `agent/task-<id>`
+- [ ] The pull request runs `gitleaks` and `validate-context` like any other
+- [ ] Two dispatches on the same task at once result in exactly one run doing work
+- [ ] A failing Aider run leaves the task `blocked` and the lock released
+- [ ] No secret appears in the run log or the pull request body

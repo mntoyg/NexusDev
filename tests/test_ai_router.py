@@ -204,6 +204,20 @@ class ClaimAndRelease(RouterFixture):
         self.assertIn("already claimed", done.stderr)
         self.assertEqual(["refs/nexus/lock/TASK-900"], self.locks(), "someone else's lock was disturbed")
 
+    def test_a_missing_ledger_helper_does_not_block_routing(self) -> None:
+        """ADR-004: the ledger is a cache, never a gate.
+
+        This workspace deliberately omits state_ledger.py and schemas/, so the
+        ledger write cannot succeed. The claim must still stand, because a failed
+        cache write that made a held lock look free would be the worse bug.
+        """
+        self.assertFalse((self.work / "scripts" / "state_ledger.py").exists())
+        done = self.route("--task-id", "TASK-900", "--force-backend", "claude", ANTHROPIC_API_KEY="x")
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertIn("claimed TASK-900", done.stderr)
+        self.assertIn("could not record", done.stderr)
+        self.assertEqual([], self.locks())
+
     def test_telemetry_records_metadata_only(self) -> None:
         self.route("--task-id", "TASK-900", "--force-backend", "claude", ANTHROPIC_API_KEY="x")
         records = self.telemetry()
@@ -211,7 +225,9 @@ class ClaimAndRelease(RouterFixture):
         record = records[-1]
         self.assertEqual("ai-router", record["node"])
         self.assertEqual("TASK-900", record["task_id"])
-        self.assertEqual("routed", record["outcome"])
+        # No executor is configured in this workspace, so nothing ran and the
+        # outcome says so rather than claiming a handoff happened.
+        self.assertEqual("no_executor", record["outcome"])
         self.assertIn("duration_seconds", record)
         forbidden = {"prompt", "diff", "content", "env", "api_key", "token"}
         self.assertEqual(set(), forbidden & set(record), "telemetry gained a field that could carry content")
@@ -229,6 +245,71 @@ class RunCap(RouterFixture):
         done = self.route("--task-id", "TASK-900", "--dry-run", NEXUS_MAX_RUNS_PER_HOUR="lots")
         self.assertEqual(4, done.returncode)
         self.assertIn("whole number", done.stderr)
+
+
+class Handoff(RouterFixture):
+    """§6.1 steps 7 and 8: the ledger write and the executor handoff."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        shutil.copy(REPO_ROOT / "scripts" / "state_ledger.py", self.work / "scripts" / "state_ledger.py")
+        (self.work / "schemas").mkdir(exist_ok=True)
+        shutil.copy(REPO_ROOT / "schemas" / "state.schema.json", self.work / "schemas" / "state.schema.json")
+
+    def executor(self, exit_code: int) -> str:
+        """A stub executor, so the handoff is testable without installing Aider."""
+        path = self.work / "stub-executor.sh"
+        path.write_text(
+            "#!/usr/bin/env bash\n"
+            'printf "executor saw task=%s model=%s branch=%s\\n" "$NEXUS_TASK_ID" "$NEXUS_ROUTED_MODEL" "$NEXUS_BRANCH"\n'
+            f"exit {exit_code}\n",
+            encoding="utf-8",
+        )
+        return f"bash {path.name}"
+
+    def ledger(self) -> dict:
+        path = self.work / "context" / "STATE.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+    def test_the_ledger_records_the_claim(self) -> None:
+        done = self.route("--task-id", "TASK-900", "--force-backend", "claude", ANTHROPIC_API_KEY="x")
+        self.assertEqual(0, done.returncode, done.stderr)
+        entry = self.ledger()["tasks"]["TASK-900"]
+        self.assertEqual("agent/task-900", entry["branch"])
+        self.assertEqual(1, entry["attempts"])
+
+    def test_without_an_executor_the_task_returns_to_ready(self) -> None:
+        """Nothing ran, so leaving it in_progress would strand it once the lock goes."""
+        done = self.route("--task-id", "TASK-900", "--force-backend", "claude", ANTHROPIC_API_KEY="x")
+        self.assertIn("no NEXUS_EXECUTOR_CMD configured", done.stderr)
+        self.assertEqual("ready", self.ledger()["tasks"]["TASK-900"]["status"])
+        self.assertIsNone(self.ledger()["lock"]["held_by"], "the ledger still shows a holder")
+
+    def test_a_successful_executor_moves_the_task_to_review(self) -> None:
+        done = self.route("--task-id", "TASK-900", "--force-backend", "claude",
+                          ANTHROPIC_API_KEY="x", NEXUS_EXECUTOR_CMD=self.executor(0))
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertIn("executor saw task=TASK-900", done.stdout)
+        self.assertIn("branch=agent/task-900", done.stdout)
+        self.assertEqual("review", self.ledger()["tasks"]["TASK-900"]["status"])
+
+    def test_a_failing_executor_blocks_the_task_without_failing_the_router(self) -> None:
+        """§4: a failed attempt blocks the task. The router itself routed correctly."""
+        done = self.route("--task-id", "TASK-900", "--force-backend", "claude",
+                          ANTHROPIC_API_KEY="x", NEXUS_EXECUTOR_CMD=self.executor(3))
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertIn("executor failed with exit 3", done.stderr)
+        self.assertEqual("blocked", self.ledger()["tasks"]["TASK-900"]["status"])
+        self.assertEqual([], self.locks(), "a failed run must still release the lock")
+
+    def test_the_executor_never_receives_a_secret_in_its_environment(self) -> None:
+        sentinel = "sk-ant-sentinel-must-not-leak-1111"
+        leaky = self.work / "leaky-executor.sh"
+        leaky.write_text("#!/usr/bin/env bash\nenv | grep -c ANTHROPIC_API_KEY || true\n", encoding="utf-8")
+        done = self.route("--task-id", "TASK-900", "--force-backend", "claude",
+                          ANTHROPIC_API_KEY=sentinel, NEXUS_EXECUTOR_CMD=f"bash {leaky.name}")
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertNotIn(sentinel, done.stdout + done.stderr)
 
 
 if __name__ == "__main__":
