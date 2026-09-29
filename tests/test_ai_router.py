@@ -1,0 +1,235 @@
+"""Tests for scripts/ai-router.sh (MASTER_PLAN.md §6).
+
+The router is a shell script, so it is driven as one: each test builds a throwaway
+workspace with a bare repository as `origin`, copies the scripts and a crafted
+`context/TODO.md` into it, and runs the real thing. No network, and the real
+`context/TODO.md` is never touched.
+
+MASTER_PLAN.md §11 lists `bats` for shell tests. Using unittest instead keeps the
+promise that matters more — no new dependency, standard library only — and drives
+the script through exactly the interface the router's callers use.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+ROUTER = "scripts/ai-router.sh"
+BASH = shutil.which("bash")
+
+READY_TASK = """# TODO
+
+### [TASK-900] A ready task routed to hermes
+- **status:** ready
+- **complexity:** low
+- **route:** hermes
+- **files:** scripts/nothing.py
+- **depends_on:** none
+- **owner:** aider
+
+**Goal**
+Exist so the router has something to route.
+
+**Constraints**
+- None worth stating.
+
+**Acceptance criteria**
+- [ ] The router reaches a decision
+"""
+
+
+def block(task_id: str, status: str, route: str, complexity: str = "low", depends: str = "none") -> str:
+    return f"""
+### [{task_id}] Fixture task {task_id}
+- **status:** {status}
+- **complexity:** {complexity}
+- **route:** {route}
+- **files:** scripts/nothing.py
+- **depends_on:** {depends}
+- **owner:** aider
+
+**Goal**
+A fixture.
+
+**Constraints**
+- None.
+
+**Acceptance criteria**
+- [ ] Reaches a decision
+"""
+
+
+@unittest.skipIf(BASH is None, "bash is not available on this machine")
+class RouterFixture(unittest.TestCase):
+    todo = READY_TASK
+
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        root = Path(self._tmp.name)
+        origin = root / "origin.git"
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
+        self.work = root / "work"
+        subprocess.run(["git", "clone", "-q", str(origin), str(self.work)], check=True, capture_output=True)
+
+        (self.work / "scripts").mkdir(exist_ok=True)
+        for name in ("ai-router.sh", "task_parser.py", "task_lock.py", "validate_state.py"):
+            shutil.copy(REPO_ROOT / "scripts" / name, self.work / "scripts" / name)
+        (self.work / "context").mkdir(exist_ok=True)
+        (self.work / "context" / "TODO.md").write_text(self.todo, encoding="utf-8")
+        (self.work / "context" / "QUEUE.md").write_text("# QUEUE\n", encoding="utf-8")
+
+        subprocess.run(["git", "-C", str(self.work), "-c", "user.email=t@x.invalid",
+                        "-c", "user.name=t", "commit", "-qm", "fixture", "--allow-empty"], check=True)
+        subprocess.run(["git", "-C", str(self.work), "push", "-q", "origin", "HEAD:refs/heads/main"], check=True)
+
+    def route(self, *argv: str, **env_extra: str) -> subprocess.CompletedProcess:
+        env = {
+            **os.environ,
+            "NEXUS_PYTHON": sys.executable,
+            "NEXUS_MAX_RUNS_PER_HOUR": "10",
+        }
+        env.pop("ANTHROPIC_API_KEY", None)
+        env.pop("HERMES_ENDPOINT", None)
+        env.update(env_extra)
+        return subprocess.run([BASH, ROUTER, *argv], cwd=self.work, capture_output=True,
+                              text=True, env=env, timeout=120)
+
+    def locks(self) -> list[str]:
+        listed = subprocess.run(["git", "-C", str(self.work), "ls-remote", "origin", "refs/nexus/lock/*"],
+                                capture_output=True, text=True)
+        return [line.split()[1] for line in listed.stdout.splitlines() if line.strip()]
+
+    def telemetry(self) -> list[dict]:
+        path = self.work / "metrics" / "runs.jsonl"
+        if not path.exists():
+            return []
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+class Contract(RouterFixture):
+    def test_help_exits_zero(self) -> None:
+        done = self.route("--help")
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertIn("usage:", done.stderr)
+
+    def test_missing_task_id_is_a_configuration_error(self) -> None:
+        self.assertEqual(4, self.route().returncode)
+
+    def test_bad_force_backend_is_a_configuration_error(self) -> None:
+        done = self.route("--task-id", "TASK-900", "--force-backend", "gpt")
+        self.assertEqual(4, done.returncode)
+        self.assertIn("must be hermes or claude", done.stderr)
+
+    def test_unknown_task_exits_one(self) -> None:
+        done = self.route("--task-id", "TASK-999", "--dry-run")
+        self.assertEqual(1, done.returncode)
+        self.assertIn("no task TASK-999", done.stderr)
+
+    def test_secret_is_never_echoed(self) -> None:
+        """§6.3: never echo a secret, not even in dry-run or debug output."""
+        sentinel = "sk-ant-sentinel-must-not-appear-0000"
+        done = self.route("--task-id", "TASK-900", "--dry-run", ANTHROPIC_API_KEY=sentinel)
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertNotIn(sentinel, done.stdout + done.stderr)
+        self.assertNotIn(sentinel, json.dumps(self.telemetry()))
+
+
+class Routing(RouterFixture):
+    def test_explicit_route_is_honoured_when_the_backend_is_usable(self) -> None:
+        done = self.route("--task-id", "TASK-900", "--dry-run", ANTHROPIC_API_KEY="x",
+                          HERMES_ENDPOINT="")
+        # Hermes is unreachable with no endpoint, so the router escalates.
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertIn("backend=claude", done.stdout)
+        self.assertIn("escalating to Claude", done.stderr)
+
+    def test_forced_backend_skips_routing(self) -> None:
+        done = self.route("--task-id", "TASK-900", "--dry-run", "--force-backend", "claude",
+                          ANTHROPIC_API_KEY="x")
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertIn("backend forced to claude", done.stderr)
+
+    def test_no_backend_at_all_parks_the_task(self) -> None:
+        """Nothing configured: Hermes unreachable, no Claude credential."""
+        done = self.route("--task-id", "TASK-900", "--dry-run")
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertIn("would park", done.stderr)
+
+    def test_parking_appends_a_real_queue_entry(self) -> None:
+        done = self.route("--task-id", "TASK-900")
+        self.assertEqual(0, done.returncode, done.stderr)
+        queue = (self.work / "context" / "QUEUE.md").read_text(encoding="utf-8")
+        self.assertIn("Parked: TASK-900", queue)
+        self.assertIn("**Raised by:** router", queue)
+        self.assertEqual([], self.locks(), "a parked task must not leave a lock behind")
+
+
+class NotClaimable(RouterFixture):
+    todo = READY_TASK + block("TASK-901", "done", "hermes") + block("TASK-902", "ready", "hermes", depends="TASK-903") + block("TASK-903", "ready", "hermes")
+
+    def test_a_task_that_is_not_ready_is_not_an_error(self) -> None:
+        done = self.route("--task-id", "TASK-901", "--dry-run")
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertIn("not 'ready'", done.stderr)
+
+    def test_unmet_dependency_blocks_without_failing(self) -> None:
+        done = self.route("--task-id", "TASK-902", "--dry-run")
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertIn("depends on unfinished work: TASK-903", done.stderr)
+
+
+class ClaimAndRelease(RouterFixture):
+    def test_the_lock_is_always_released(self) -> None:
+        """§6.3: trap release_lock EXIT. A routed task must leave no ref behind."""
+        done = self.route("--task-id", "TASK-900", "--force-backend", "claude", ANTHROPIC_API_KEY="x")
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertIn("claimed TASK-900", done.stderr)
+        self.assertEqual([], self.locks(), "the router exited holding a lock")
+
+    def test_a_contended_task_is_not_an_error(self) -> None:
+        held = subprocess.run([sys.executable, "scripts/task_lock.py", "claim", "TASK-900",
+                               "--run-id", "someone-else"], cwd=self.work, capture_output=True, text=True)
+        self.assertEqual(0, held.returncode, held.stderr)
+        done = self.route("--task-id", "TASK-900", "--force-backend", "claude", ANTHROPIC_API_KEY="x")
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertIn("already claimed", done.stderr)
+        self.assertEqual(["refs/nexus/lock/TASK-900"], self.locks(), "someone else's lock was disturbed")
+
+    def test_telemetry_records_metadata_only(self) -> None:
+        self.route("--task-id", "TASK-900", "--force-backend", "claude", ANTHROPIC_API_KEY="x")
+        records = self.telemetry()
+        self.assertTrue(records, "no telemetry was emitted")
+        record = records[-1]
+        self.assertEqual("ai-router", record["node"])
+        self.assertEqual("TASK-900", record["task_id"])
+        self.assertEqual("routed", record["outcome"])
+        self.assertIn("duration_seconds", record)
+        forbidden = {"prompt", "diff", "content", "env", "api_key", "token"}
+        self.assertEqual(set(), forbidden & set(record), "telemetry gained a field that could carry content")
+
+
+class RunCap(RouterFixture):
+    def test_the_hourly_cap_stops_the_router(self) -> None:
+        done = self.route("--task-id", "TASK-900", "--force-backend", "claude",
+                          ANTHROPIC_API_KEY="x", NEXUS_MAX_RUNS_PER_HOUR="0")
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertIn("run cap reached", done.stderr)
+        self.assertEqual([], self.locks())
+
+    def test_a_bad_cap_is_a_configuration_error(self) -> None:
+        done = self.route("--task-id", "TASK-900", "--dry-run", NEXUS_MAX_RUNS_PER_HOUR="lots")
+        self.assertEqual(4, done.returncode)
+        self.assertIn("whole number", done.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

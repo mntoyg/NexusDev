@@ -420,11 +420,16 @@ file in the repository.
 
 ```
 INPUT: task_id
-  1. Claim the task by creating refs/nexus/lock/<id> with a run-unique object
+  1. Parse the task block  →  task_parser.py --task-id <id>  →  JSON
+  2. Validate: status == ready, depends_on satisfied, files <= 5. Else → blocked.
+  3. Claim the task by creating refs/nexus/lock/<id> with a run-unique object
      (ADR-004). Rejected push → exit 0, another runner has it. Then record
      held_by / acquired_at / ttl_seconds in STATE.json as the ledger.
-  2. Parse the task block  →  task_parser.py --task-id <id>  →  JSON
-  3. Validate: status == ready, depends_on satisfied, files <= 5. Else → blocked.
+     (Steps 1-3 were reordered when the router was implemented: claiming first
+     creates and immediately deletes a ref for a task id that does not exist,
+     and buys nothing, because the push is still the atomic gate. Two runners
+     that both parse a ready task still race on the claim and still produce
+     exactly one winner.)
   4. Determine complexity:
        explicit `route:` field           → honour it
        else if Hermes is reachable       → ask Hermes to classify (cheap, local)
@@ -646,7 +651,7 @@ tomorrow, does it embarrass or endanger the project?"* If yes, it does not ship.
 | Cloud LLM | Anthropic API (`claude-opus-5`, `claude-sonnet-5`) | Node 1 backend; the model id is configuration, never hardcoded logic |
 | Executor | `aider-chat` | Mature multi-file editing with native Git integration |
 | Telemetry | Comet ML + local JSONL fallback | Never a hard dependency |
-| Testing | `pytest` + `shellcheck` + `bats` | Standard, free, CI-friendly |
+| Testing | `unittest` + `shellcheck` | Standard library, so the suite runs with no install at all. `bats` was dropped rather than added as a dependency: `tests/test_ai_router.py` drives the shell script through the same interface its callers use. `pytest` still collects the suite for anyone who prefers it |
 | Secret scanning | `gitleaks` | Mandatory gate on a public repository |
 
 **Dependency policy:** every new third-party dependency requires an ADR. The
@@ -676,10 +681,12 @@ Phase 1 is complete. The bus is now parsed, validated and gated in CI.
 - [x] ADR-004 — locking strategy decided, so §6.1 step 1 is unblocked
 - [x] `scripts/task_lock.py` — claim/release/status/break, with the ADR-004 experiment as tests — TASK-004
 - [x] `lock-sweep.yml` — hourly sweep of locks left by killed runners — TASK-005
-- [ ] `scripts/ai-router.sh` per §6
-- [ ] Hermes classification backend + health check
-- [ ] Quota detection and `QUEUE.md` parking
-- [ ] `bats` tests, `shellcheck` clean
+- [x] `scripts/ai-router.sh` per §6 — routing, run cap, health tiers, parking, telemetry
+- [x] Hermes health check, with cloud-only degradation when it is unreachable
+- [x] Quota detection and `QUEUE.md` parking
+- [x] `shellcheck` in CI; shell behaviour driven by `unittest` rather than `bats` (see §11)
+- [ ] Hermes *classification* for tasks with `route: any` (§6.1 step 4) — TASK-006
+- [ ] `STATE.json` ledger write and the Aider handoff (§6.1 steps 7-8) — Phase 3
 
 ### Phase 3 — The Executor
 - [ ] `agent-execute.yml` — router → Aider → PR
