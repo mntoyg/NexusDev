@@ -490,6 +490,7 @@ NEXUS_MAX_RUNS_PER_HOUR  global run cap from §9; optional, defaults to 10
 | Workflow | Trigger | Does |
 | :--- | :--- | :--- |
 | `validate-context.yml` ✅ | `pull_request`, `push` to `main`, manual | Runs `task_parser.py --validate`, `validate_state.py` and the unit suite, after a self-test proving both validators still reject bad input. **The bus schema is CI-enforced.** No `paths:` filter — a filtered required check never reports and blocks the PR forever. |
+| `lock-sweep.yml` ✅ | hourly cron, manual | Breaks `refs/nexus/lock/*` older than 3600s (four TTLs) via `task_lock.py break`, which refuses a younger lock. **The only workflow with `contents: write`**, scoped to its one job. |
 | `agent-dispatch.yml` | Issue labelled `ai-task`, or manual dispatch | Converts the issue into a `TODO.md` task block, commits it |
 | `agent-execute.yml` | Push to `context/TODO.md` on `main`, plus hourly cron | Runs `ai-router.sh` for each `ready` task, invokes Aider, opens PRs |
 | `queue-drain.yml` | Cron every 6h | If Claude quota is available, drains `QUEUE.md` and opens an architecture PR |
@@ -674,6 +675,7 @@ Phase 1 is complete. The bus is now parsed, validated and gated in CI.
 ### Phase 2 — The Router
 - [x] ADR-004 — locking strategy decided, so §6.1 step 1 is unblocked
 - [x] `scripts/task_lock.py` — claim/release/status/break, with the ADR-004 experiment as tests — TASK-004
+- [x] `lock-sweep.yml` — hourly sweep of locks left by killed runners — TASK-005
 - [ ] `scripts/ai-router.sh` per §6
 - [ ] Hermes classification backend + health check
 - [ ] Quota detection and `QUEUE.md` parking

@@ -297,7 +297,8 @@ Honesty matters more than a green checklist. Current implementation state:
 | `GITHUB_TOKEN` read-only by default | ✅ | ✅ | Actions setting: default permissions `read` |
 | Force-push / branch deletion blocked on `main` | ✅ | ✅ | GitHub branch protection |
 | `gitleaks` merge gate (generic secrets) | ✅ | ✅ | `secret-scan.yml` — required check, canary self-test every run; see §5.1 |
-| Least-privilege `permissions:` on every workflow | ✅ | ✅ 1 of 1 | `secret-scan.yml` is read-only; every new workflow must declare its own |
+| Least-privilege `permissions:` on every workflow | ✅ | ✅ 3 of 3 | Two are read-only. `lock-sweep.yml` declares `contents: write` on its one job, because deleting a ref needs it; see the note below |
+| Scheduled job holding write access | ⚠️ by necessity | ✅ reviewed | `lock-sweep.yml` only. It runs no third-party action beyond a SHA-pinned checkout, takes no untrusted input, and can only delete refs under `refs/nexus/lock/*` via `task_lock.py`, which refuses to break a lock younger than the threshold |
 | Actions pinned to commit SHAs | ✅ | ✅ | `secret-scan.yml` pins `actions/checkout` by SHA |
 | Pins kept current | ✅ | ✅ | `dependabot.yml`: weekly, grouped, 7-day cooldown. **gitleaks binary excluded — bumped by hand** |
 | Attempt / run / timeout caps | ✅ | ❌ **not yet** | Phase 2 — `ai-router.sh` |
