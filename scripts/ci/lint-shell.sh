@@ -67,10 +67,14 @@ printf '  %s\n' "${scripts[@]}"
 echo "ok: shellcheck clean across ${#scripts[@]} script(s)"
 
 # --------------------------------- 2. refuse unlinted shell in a workflow ----
-# A block scalar after `run:` is shell living inside YAML, which neither
-# shellcheck nor step 1 can see. One-liners stay allowed: there is nothing in
+# A block scalar after `run:` is shell living inside YAML, where neither step 1
+# nor any linter can see it. One-liners stay allowed: there is nothing in
 # `python3 --version` for a linter to find, and forbidding them would only push
 # people into writing worse YAML.
+#
+# Mind the wording of comments in this file. A line beginning `# shellcheck`
+# is read as a DIRECTIVE, not prose, and shellcheck fails the file with SC1072.
+# This gate caught that in its own source on its first real run.
 if [ ! -d "$WORKFLOWS" ]; then
   echo "::error::$WORKFLOWS does not exist, so the workflow guard checked nothing" >&2
   exit 1

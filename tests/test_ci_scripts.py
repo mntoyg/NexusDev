@@ -72,6 +72,24 @@ class Inventory(unittest.TestCase):
 
 
 class Workflows(unittest.TestCase):
+    def test_no_comment_accidentally_becomes_a_shellcheck_directive(self) -> None:
+        """A line beginning `# shellcheck` is a directive, not prose.
+
+        shellcheck rejects the whole file with SC1072 and points at the comment
+        rather than at the mistake. It is not installed on every contributor's
+        machine, so the rule is asserted here too. This caught lint-shell.sh
+        describing itself in its own header, on the gate's first real run.
+        """
+        allowed = ("disable=", "shell=", "source=", "source-path=", "external-sources=")
+        offenders = []
+        for script in sorted(REPO_ROOT.glob("scripts/**/*.sh")):
+            for number, line in enumerate(script.read_text(encoding="utf-8").splitlines(), 1):
+                match = re.match(r"^\s*#\s*shellcheck\s+(\S*)", line)
+                if match and not match.group(1).startswith(allowed):
+                    offenders.append(f"{script.relative_to(REPO_ROOT).as_posix()}:{number}")
+        self.assertEqual([], offenders,
+                         f"prose read as a shellcheck directive: {offenders}")
+
     def test_no_workflow_hides_multi_line_shell(self) -> None:
         """The convention P1 #3 established, asserted where it is cheap to notice."""
         offenders = []
