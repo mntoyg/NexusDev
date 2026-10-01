@@ -48,29 +48,7 @@ jobs:
         run: python3 --version
 
       - name: Self-test — the validators must reject bad input
-        run: |
-          set -euo pipefail
-          tmp="$RUNNER_TEMP/bad-input"
-          mkdir -p "$tmp"
-          fail=0
-
-          printf '### [TASK-001] deliberately broken\n- **status:** not-a-status\n' > "$tmp/TODO.md"
-          if python3 scripts/task_parser.py --file "$tmp/TODO.md" --validate 2>/dev/null; then
-            echo "::error::task_parser accepted a malformed task block; the gate is blind"
-            fail=1
-          else
-            echo "ok: task_parser rejects a malformed block"
-          fi
-
-          printf '{"schema_version": "not-a-version"}\n' > "$tmp/STATE.json"
-          if python3 scripts/validate_state.py --file "$tmp/STATE.json" 2>/dev/null; then
-            echo "::error::validate_state accepted a malformed document; the gate is blind"
-            fail=1
-          else
-            echo "ok: validate_state rejects a malformed document"
-          fi
-
-          exit "$fail"
+        run: bash scripts/ci/selftest-validators.sh
 
       - name: Validate the task grammar
         run: python3 scripts/task_parser.py --validate
@@ -78,11 +56,8 @@ jobs:
       - name: Validate the pipeline state
         run: python3 scripts/validate_state.py
 
-      - name: Shellcheck
-        run: |
-          set -euo pipefail
-          shellcheck --version
-          shellcheck -S warning scripts/*.sh
+      - name: Lint every shell script, and refuse unlinted shell in a workflow
+        run: bash scripts/ci/lint-shell.sh
 
       - name: Unit tests
         run: python3 -m unittest discover -s tests -v

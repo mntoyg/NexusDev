@@ -1,0 +1,14 @@
+# Line endings are a CI correctness issue here, not a style preference.
+#
+# Every gate in .github/workflows/ now calls a shell script in scripts/ci/. A
+# contributor on Windows with core.autocrlf=false commits those files with CRLF,
+# and a Linux runner then fails with "bad interpreter: /usr/bin/env bash^M" —
+# which reads as a broken gate rather than as a line-ending problem, and costs
+# an afternoon to diagnose.
+#
+# `text=auto` normalises to LF in the repository whatever the local git is
+# configured to do; the `*.sh` line additionally pins LF in the working tree, so
+# a script is LF-terminated even while being edited on Windows.
+
+* text=auto
+*.sh text eol=lf

@@ -17,6 +17,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -240,6 +241,106 @@ class RunCap(RouterFixture):
                           ANTHROPIC_API_KEY="x", NEXUS_MAX_RUNS_PER_HOUR="0")
         self.assertEqual(0, done.returncode, done.stderr)
         self.assertIn("run cap reached", done.stderr)
+        self.assertEqual([], self.locks())
+
+    def write_runs(self, *ages_in_minutes: int) -> None:
+        """Seed the telemetry file with real runs this many minutes in the past."""
+        metrics = self.work / "metrics"
+        metrics.mkdir(exist_ok=True)
+        lines = []
+        for index, age in enumerate(ages_in_minutes):
+            stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(time.time() - age * 60))
+            lines.append(json.dumps({"run_id": f"router-{stamp}-{index}", "task_id": "TASK-900",
+                                     "outcome": "handed_off", "dry_run": False}))
+        (metrics / "runs.jsonl").write_text("\n".join(lines) + "\n",
+                                            encoding="utf-8")
+
+    def test_a_run_inside_the_window_counts_towards_the_cap(self) -> None:
+        """Nothing exercised the timestamp before this: the existing cap test uses
+        a limit of 0, which short-circuits before any stamp is read."""
+        self.write_runs(50)
+        done = self.route("--task-id", "TASK-900", "--force-backend", "claude",
+                          ANTHROPIC_API_KEY="x", NEXUS_MAX_RUNS_PER_HOUR="1")
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertIn("run cap reached", done.stderr)
+
+    def test_a_run_older_than_the_window_does_not(self) -> None:
+        self.write_runs(70)
+        done = self.route("--task-id", "TASK-900", "--force-backend", "claude",
+                          ANTHROPIC_API_KEY="x", NEXUS_MAX_RUNS_PER_HOUR="1")
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertNotIn("run cap reached", done.stderr)
+
+    def test_a_dry_run_is_not_counted(self) -> None:
+        """§9 caps agent runs, and a dry run never reaches an agent."""
+        metrics = self.work / "metrics"
+        metrics.mkdir(exist_ok=True)
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(time.time() - 10 * 60))
+        (metrics / "runs.jsonl").write_text(
+            json.dumps({"run_id": f"router-{stamp}-1", "task_id": "TASK-900",
+                        "outcome": "handed_off", "dry_run": True}) + "\n",
+            encoding="utf-8")
+        done = self.route("--task-id", "TASK-900", "--force-backend", "claude",
+                          ANTHROPIC_API_KEY="x", NEXUS_MAX_RUNS_PER_HOUR="1")
+        self.assertNotIn("run cap reached", done.stderr)
+
+    def skew_zone(self, stamp: str) -> str | None:
+        """A TZ in which the *old* cap arithmetic is demonstrably wrong for `stamp`.
+
+        Proven, not assumed, and proven down the same path the router takes:
+        bash, then $PYTHON. Git Bash on Windows drops TZ on the way through, and
+        tm_isdst there reports 1 for every zone including ones with no DST at
+        all — so a test that merely set TZ and asserted passed cheerfully
+        against the unfixed script. It did, and it is the reason this helper
+        exists.
+
+        Returning None means this machine cannot express the fault, which is a
+        skip and never a pass.
+        """
+        probe = (
+            "import calendar, time; "
+            f"tm = time.strptime({stamp!r}, '%Y%m%dT%H%M%SZ'); "
+            "print(int(time.mktime(tm) - time.timezone) - calendar.timegm(tm))"
+        )
+        for zone in ("America/New_York", "Australia/Sydney", "Europe/London"):
+            done = subprocess.run([BASH, "-c", 'exec "$1" -c "$2"', "_", sys.executable, probe],
+                                  capture_output=True, text=True,
+                                  env={**os.environ, "TZ": zone})
+            if done.stdout.strip() not in ("", "0"):
+                return zone
+        return None
+
+    def test_the_cap_window_is_utc_even_under_dst(self) -> None:
+        """Regression test for P2 #4.
+
+        The cap read `run_id` with `time.mktime(...) - time.timezone`. strptime
+        leaves tm_isdst at -1, so mktime guesses, and during DST it applies
+        altzone while the correction subtracts timezone. The hour of skew makes
+        a run 50 minutes old look 110 minutes old, so it stops counting and the
+        cap silently allows more runs than §9 permits.
+
+        The skew measures zero on a UTC runner, which is precisely why this test
+        does not run in UTC.
+        """
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(time.time() - 50 * 60))
+        zone = self.skew_zone(stamp)
+        if zone is None:
+            self.skipTest("no TZ reachable from this platform's bash skews the old arithmetic")
+
+        metrics = self.work / "metrics"
+        metrics.mkdir(exist_ok=True)
+        (metrics / "runs.jsonl").write_text(
+            json.dumps({"run_id": f"router-{stamp}-1", "task_id": "TASK-900",
+                        "outcome": "handed_off", "dry_run": False}) + "\n",
+            encoding="utf-8")
+
+        done = self.route("--task-id", "TASK-900", "--force-backend", "claude",
+                          ANTHROPIC_API_KEY="x", NEXUS_MAX_RUNS_PER_HOUR="1", TZ=zone)
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertIn(
+            "run cap reached", done.stderr,
+            f"a run 50 minutes old was not counted under TZ={zone}: the cap "
+            "window is being computed in local time, not UTC")
         self.assertEqual([], self.locks())
 
     def test_a_bad_cap_is_a_configuration_error(self) -> None:

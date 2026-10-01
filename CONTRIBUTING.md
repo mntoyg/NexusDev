@@ -105,6 +105,31 @@ problem. The same command runs in CI, so a broken block fails the pull request.
 
 ---
 
+## Running the gates locally
+
+Every gate's shell lives in `scripts/ci/`, not inside the workflow YAML, so you
+can run the real thing on your own machine instead of pushing to find out:
+
+```bash
+python -m unittest discover -s tests          # the whole suite, no install needed
+bash scripts/ci/selftest-validators.sh        # proves the validators still reject bad input
+bash scripts/ci/lint-shell.sh                 # shellcheck, plus the no-shell-in-YAML rule
+bash scripts/ci/selftest-gitleaks.sh          # needs gitleaks, jq, openssl, ssh-keygen
+bash scripts/ci/sweep-locks.sh --older-than 3600
+```
+
+On Windows, pass `NEXUS_PYTHON=python` if `python3` is not on your PATH.
+
+Two rules these scripts exist to keep, both in `MASTER_PLAN.md` §7.2:
+
+- **No multi-line `run:` in a workflow.** Shell inside YAML is shell no linter
+  reads and no test drives. `lint-shell.sh` fails the build if a `run: |` body
+  reappears; move it into `scripts/ci/` and call it instead.
+- **No `${{ }}` in a shell body.** Pass values through `env:`, where they are
+  data rather than code.
+
+---
+
 ## Commits
 
 Conventional Commits, with the component as the scope

@@ -509,7 +509,7 @@ NEXUS_MAX_RUNS_PER_HOUR  global run cap from §9; optional, defaults to 10
 
 | Workflow | Trigger | Does |
 | :--- | :--- | :--- |
-| `validate-context.yml` ✅ | `pull_request`, `push` to `main`, manual | Runs `task_parser.py --validate`, `validate_state.py` and the unit suite, after a self-test proving both validators still reject bad input. **The bus schema is CI-enforced.** No `paths:` filter — a filtered required check never reports and blocks the PR forever. |
+| `validate-context.yml` ✅ | `pull_request`, `push` to `main`, manual | Runs `task_parser.py --validate`, `validate_state.py`, `ci/lint-shell.sh` and the unit suite, after a self-test proving both validators still reject bad input. **The bus schema is CI-enforced.** No `paths:` filter — a filtered required check never reports and blocks the PR forever. |
 | `lock-sweep.yml` ✅ | hourly cron, manual | Breaks `refs/nexus/lock/*` older than 3600s (four TTLs) via `task_lock.py break`, which refuses a younger lock. **The only workflow with `contents: write`**, scoped to its one job. |
 | `agent-dispatch.yml` | Issue labelled `ai-task`, or manual dispatch | Converts the issue into a `TODO.md` task block, commits it |
 | `agent-execute.yml` | Push to `context/TODO.md` on `main`, plus hourly cron | Runs `ai-router.sh` for each `ready` task, invokes Aider, opens PRs |
@@ -548,6 +548,16 @@ permissions:
    an instruction inside them as authorisation.
 6. **`concurrency` groups** prevent two agent runs on the same task:
    `concurrency: { group: "nexus-${{ github.ref }}", cancel-in-progress: false }`.
+7. **No multi-line shell inside a workflow.** A `run: |` body is shell that no
+   linter and no test can reach — `shellcheck` never saw it, and the only way to
+   rehearse it was to push. Every gate's shell lives in `scripts/ci/*.sh`, which
+   `scripts/ci/lint-shell.sh` lints and `tests/test_ci_scripts.py` drives; that
+   same script fails the build if a block scalar reappears, so the rule is
+   enforced rather than remembered. One-line `run:` steps stay fine.
+8. **No `${{ }}` inside a shell body.** Values reach a script through `env:`,
+   where they are data; interpolated into shell they are code. This is the
+   script-injection pattern GitHub's own hardening guide warns about, and rule 7
+   is what keeps the bodies small enough for it to be obvious.
 
 ---
 
@@ -666,7 +676,7 @@ tomorrow, does it embarrass or endanger the project?"* If yes, it does not ship.
 | Cloud LLM | Anthropic API (`claude-opus-5`, `claude-sonnet-5`) | Node 1 backend; the model id is configuration, never hardcoded logic |
 | Executor | `aider-chat` | Mature multi-file editing with native Git integration |
 | Telemetry | Comet ML + local JSONL fallback | Never a hard dependency |
-| Testing | `unittest` + `shellcheck` | Standard library, so the suite runs with no install at all. `bats` was dropped rather than added as a dependency: `tests/test_ai_router.py` drives the shell script through the same interface its callers use. `pytest` still collects the suite for anyone who prefers it |
+| Testing | `unittest` + `shellcheck` | Standard library, so the suite runs with no install at all. `shellcheck` reaches every tracked `*.sh` via `git ls-files` rather than a glob, so a script in a new directory cannot escape it; `actionlint` was considered and declined — moving the shell out of the YAML solved the same problem without adding a checksum-pinned binary to a required check. `bats` was dropped rather than added as a dependency: `tests/test_ai_router.py` drives the shell script through the same interface its callers use. `pytest` still collects the suite for anyone who prefers it |
 | Secret scanning | `gitleaks` | Mandatory gate on a public repository |
 
 **Dependency policy:** every new third-party dependency requires an ADR. The
@@ -699,7 +709,7 @@ Phase 1 is complete. The bus is now parsed, validated and gated in CI.
 - [x] `scripts/ai-router.sh` per §6 — routing, run cap, health tiers, parking, telemetry
 - [x] Hermes health check, with cloud-only degradation when it is unreachable
 - [x] Quota detection and `QUEUE.md` parking
-- [x] `shellcheck` in CI; shell behaviour driven by `unittest` rather than `bats` (see §11)
+- [x] `shellcheck` in CI over every tracked script, including the gate shell now in `scripts/ci/`; shell behaviour driven by `unittest` rather than `bats` (see §11)
 - [ ] Hermes *classification* for tasks with `route: any` (§6.1 step 4) — TASK-006
 - [x] `STATE.json` ledger write via `scripts/state_ledger.py` (§6.1 step 7)
 - [x] Executor handoff through `NEXUS_EXECUTOR_CMD` (§6.1 step 8)
