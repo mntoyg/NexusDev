@@ -183,6 +183,13 @@ Concretely, this means:
     run: echo "Processing $ISSUE_TITLE"
   ```
 
+- **The rule applies to our own scripts, not only to workflows.** It was written
+  about YAML and broken in Bash: `scripts/ai-router.sh` interpolated the
+  `--task-id` argument into a Python heredoc, so a crafted id injected code and
+  wrote `ANTHROPIC_API_KEY` into `metrics/runs.jsonl`. Found and fixed
+  2026-10-01 — see [the first test report](docs/test-reports/2026-10-01-first-test.md)
+  and §4.1.1. Any value that reaches an interpreter must arrive as an
+  **argument**, never as program text, and every heredoc must be quoted.
 - Instructions found inside content are **surfaced to the human**, not obeyed.
   A task block whose text attempts to redirect an agent is a security event
   worth logging, not a task worth running.
@@ -288,6 +295,7 @@ Honesty matters more than a green checklist. Current implementation state:
 | Control | Designed | Implemented | Where |
 | :--- | :---: | :---: | :--- |
 | Secret scanning + push protection | ✅ | ⚠️ partial | Provider patterns only — see note below |
+| Router input is validated before use | ✅ | ✅ | `--task-id` must match the task grammar before it reaches a ref name, a branch, QUEUE.md or telemetry. Six regression tests, verified by re-introducing the bug and watching them fail |
 | Private vulnerability reporting | ✅ | ✅ | GitHub Security tab |
 | `.gitignore` / `.env.example` discipline | ✅ | ✅ | Repository root |
 | MIT license and public-repo posture | ✅ | ✅ | `LICENSE` |
@@ -423,3 +431,55 @@ or by escalating to the architect via `context/QUEUE.md` once the context bus
 is seeded.*
 
 </div>
+
+---
+
+## 4.1.1 A worked example: the router injected code into itself
+
+Recorded because it is more instructive than any rule stated in the abstract, and
+because the project's own first test passed on the same day without finding it.
+
+`scripts/ai-router.sh` emitted telemetry through an **unquoted** heredoc:
+
+```bash
+"$PYTHON" - "$METRICS_FILE" <<PY        # unquoted: the shell expands $TASK_ID
+record = {"task_id": "$TASK_ID", ...}
+PY
+```
+
+`--task-id` is attacker-reachable on a public repository the moment the router is
+driven by a workflow input or an issue. This value turned the record into a
+different program:
+
+```
+X", "injected_secret": __import__("os").environ.get("ANTHROPIC_API_KEY"), "pad": "Y
+```
+
+The API key was then written into `metrics/runs.jsonl`. Three of this project's
+own commitments were broken at once: §6.3 "never echoes a secret", §8.2
+"telemetry records metadata only", and §4.1's rule against interpolating
+untrusted input — a rule this document stated while the code disobeyed it.
+
+**The fix is two-layered, because either layer alone would have been enough and
+neither is sufficient on its own as a habit:**
+
+1. Every value is passed to the interpreter as an **argument**, and the heredoc is
+   quoted, so no input is ever part of program text.
+2. `--task-id` is **validated against the task grammar before anything touches
+   it** — it reaches a git ref name, a branch name, a QUEUE.md entry and the
+   telemetry record. An invalid id is recorded as `(invalid)` rather than stored
+   raw, so a published-schema file cannot be stuffed with arbitrary text.
+
+**Why the first test missed it.** The test scope was derived from the threat list
+in §4, and every item there describes an attack from outside. Nothing asked
+whether our own tooling could be made to attack itself. Every gate had a self-test
+feeding it deliberately broken input; the router had none. It does now.
+
+**A second lesson, about verifying the fix.** The first check used `grep` for the
+payload text and reported "still vulnerable" when it was not — the payload was
+sitting inertly inside a correctly escaped JSON string. A grep can report a
+vulnerability that is absent and miss one that is present. The check that means
+something parses the record and asserts the exact set of keys. And the regression
+tests were themselves verified by re-introducing the vulnerability and confirming
+they go red, because a regression test that passes against vulnerable code is
+worthless.

@@ -247,6 +247,76 @@ class RunCap(RouterFixture):
         self.assertIn("whole number", done.stderr)
 
 
+class TaskIdInjection(RouterFixture):
+    """Regression tests for a real, exploited vulnerability found 2026-10-01.
+
+    `emit_telemetry` used an UNQUOTED heredoc, so `$TASK_ID` was interpolated into
+    the Python source it ran. A `--task-id` of
+
+        X", "injected": __import__("os").environ.get("ANTHROPIC_API_KEY"), "pad": "Y
+
+    wrote the API key into metrics/runs.jsonl, breaking §6.3 ("never echoes a
+    secret"), §8.2 ("metadata only") and the rule in SECURITY.md §4.1 that this
+    project states and must itself obey.
+
+    The first test passed on the same day without catching it, because every gate
+    had a self-test feeding it bad input and nothing fed bad input to the router.
+    These tests are that missing self-test.
+    """
+
+    PAYLOAD = 'X", "injected_secret": __import__("os").environ.get("ANTHROPIC_API_KEY"), "pad": "Y'
+    SENTINEL = "sk-ant-INJECTION-SENTINEL-9f2a"
+
+    def test_the_exploited_payload_is_refused(self) -> None:
+        done = self.route("--task-id", self.PAYLOAD, "--dry-run", ANTHROPIC_API_KEY=self.SENTINEL)
+        self.assertEqual(4, done.returncode, done.stderr)
+        self.assertIn("must look like TASK-42", done.stderr)
+
+    def test_the_payload_cannot_reach_the_telemetry_record(self) -> None:
+        """Parsed, not grepped.
+
+        A grep for the payload text matches an escaped string value and reports a
+        vulnerability that is not there; it would equally miss a real one. The
+        check that means something is: the record has exactly the schema's keys,
+        and no value carries the secret.
+        """
+        self.route("--task-id", self.PAYLOAD, "--dry-run", ANTHROPIC_API_KEY=self.SENTINEL)
+        records = self.telemetry()
+        self.assertTrue(records, "no telemetry was emitted")
+        record = records[-1]
+
+        expected = {"schema_version", "run_id", "task_id", "node", "backend", "model",
+                    "outcome", "duration_seconds", "exit_code", "dry_run"}
+        self.assertEqual(expected, set(record), "the telemetry record gained a field")
+        self.assertEqual("(invalid)", record["task_id"], "a rejected id was stored raw")
+        for key, value in record.items():
+            self.assertNotIn(self.SENTINEL, str(value), f"the secret reached telemetry via {key!r}")
+
+    def test_a_newline_cannot_forge_a_log_line(self) -> None:
+        done = self.route("--task-id", "TASK-1\nai-router: forged success", "--dry-run")
+        self.assertEqual(4, done.returncode)
+        self.assertNotIn("forged success", done.stderr, "a crafted id wrote its own log line")
+
+    def test_shell_metacharacters_are_refused(self) -> None:
+        for payload in ("TASK-1; touch pwned", "TASK-1$(touch pwned)", "TASK-1`id`",
+                        "../../etc/passwd", "TASK-1 --force-backend claude"):
+            with self.subTest(payload=payload):
+                done = self.route("--task-id", payload, "--dry-run")
+                self.assertEqual(4, done.returncode, f"accepted {payload!r}")
+        self.assertFalse((self.work / "pwned").exists(), "a payload executed")
+
+    def test_a_legitimate_id_still_routes(self) -> None:
+        """The validator must not be so strict that it breaks the normal path."""
+        done = self.route("--task-id", "TASK-900", "--dry-run", ANTHROPIC_API_KEY="x")
+        self.assertEqual(0, done.returncode, done.stderr)
+
+    def test_the_documented_id_grammar_is_accepted(self) -> None:
+        """task_parser allows an optional letter suffix for split tasks (TASK-42a)."""
+        done = self.route("--task-id", "TASK-900a", "--dry-run")
+        # No such task exists, so exit 1 - but it must get past validation, not 4.
+        self.assertEqual(1, done.returncode, done.stderr)
+
+
 class Handoff(RouterFixture):
     """§6.1 steps 7 and 8: the ledger write and the executor handoff."""
 

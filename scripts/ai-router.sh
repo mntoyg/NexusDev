@@ -63,21 +63,35 @@ emit_telemetry() {
   local outcome="$1" exit_code="$2"
   local duration=$(( $(date -u +%s) - STARTED_AT ))
   mkdir -p "$(dirname "$METRICS_FILE")"
-  "$PYTHON" - "$METRICS_FILE" <<PY || true
-import json, sys
+  # Every value is passed as an ARGUMENT and the heredoc is quoted, so none of it
+  # is ever part of the program text.
+  #
+  # This used to be an unquoted heredoc that interpolated $TASK_ID straight into
+  # the Python source. A --task-id crafted as
+  #     X", "injected": __import__("os").environ.get("ANTHROPIC_API_KEY"), "pad": "Y
+  # therefore wrote the API key into this very file - breaking 6.3 ("never echoes
+  # a secret"), 8.2 ("metadata only") and the rule in SECURITY.md 4.1 that this
+  # project states and must itself obey. Found 2026-10-01 while auditing after the
+  # first test, which had passed without catching it.
+  "$PYTHON" - "$METRICS_FILE" "$RUN_ID" "$TASK_ID" "$BACKEND" "$ROUTED_MODEL" \
+             "$outcome" "$duration" "$exit_code" "$DRY_RUN" <<'PY' || true
+import json
+import sys
+
+path, run_id, task_id, backend, model, outcome, duration, exit_code, dry_run = sys.argv[1:10]
 record = {
     "schema_version": "1.0.0",
-    "run_id": "$RUN_ID",
-    "task_id": "$TASK_ID",
+    "run_id": run_id,
+    "task_id": task_id,
     "node": "ai-router",
-    "backend": "$BACKEND" or None,
-    "model": "$ROUTED_MODEL" or None,
-    "outcome": "$outcome",
-    "duration_seconds": $duration,
-    "exit_code": $exit_code,
-    "dry_run": bool(int("$DRY_RUN" or 0)),
+    "backend": backend or None,
+    "model": model or None,
+    "outcome": outcome,
+    "duration_seconds": int(duration or 0),
+    "exit_code": int(exit_code or 0),
+    "dry_run": bool(int(dry_run or 0)),
 }
-with open(sys.argv[1], "a", encoding="utf-8") as handle:
+with open(path, "a", encoding="utf-8") as handle:
     handle.write(json.dumps(record) + "\n")
 PY
 }
@@ -107,6 +121,21 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$TASK_ID" ] || { usage; die "--task-id is required" 4; }
+
+# Validate the task id before anything else touches it. It reaches a git ref name,
+# a branch name, a QUEUE.md entry and the telemetry record, and on a public
+# repository it can arrive from a workflow_dispatch input or an issue - so it is
+# untrusted until proven otherwise. The grammar is the one task_parser.py enforces.
+if ! [[ "$TASK_ID" =~ ^TASK-[0-9]+[a-z]?$ ]]; then
+  # Report a stripped, truncated copy: echoing the raw value would let a crafted
+  # id forge log lines with embedded newlines or control characters.
+  safe_id="$(printf '%s' "$TASK_ID" | tr -cd '[:alnum:]_.-' | cut -c1-40)"
+  # Keep the raw value out of the telemetry record too. It is inert there now that
+  # values are passed as arguments, but 8 says metadata only, and letting an
+  # arbitrary string be stuffed into a published-schema file is still wrong.
+  TASK_ID="(invalid)"
+  die "--task-id must look like TASK-42; got something else (sanitised: '$safe_id')" 4
+fi
 case "$FORCE_BACKEND" in
   ""|hermes|claude) ;;
   *) die "--force-backend must be hermes or claude, got '$FORCE_BACKEND'" 4 ;;
