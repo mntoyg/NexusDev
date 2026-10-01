@@ -1,0 +1,13 @@
+DELIBERATE SECURITY TEST FIXTURE — first test, 2026-10-01.
+
+This file exists to prove that the gitleaks gate blocks a credential embedded in
+a URL: the exact case SECURITY.md 5.1 names as this project's obvious risk, and
+the one GitHub's free secret scanning does NOT detect, which is why the custom
+url-embedded-credentials rule in .gitleaks.toml exists.
+
+The value below is FAKE. The host uses .invalid, reserved by RFC 2606 and
+impossible to route. Nothing here grants access to anything.
+
+If this file is on main, the gate failed and that is the finding.
+
+HERMES_ENDPOINT=https://nexus:CANARY-not-a-real-secret-7f3a9b2e@hermes.example.invalid
