@@ -164,7 +164,8 @@ NexusDev/
 │   ├── ISSUE_TEMPLATE/       # [planned] OpenCode-generated
 │   └── PULL_REQUEST_TEMPLATE.md   # [planned]
 ├── metrics/                  # Comet output (JSONL, gitignored)
-└── docs/                     # [planned] Contributor documentation
+├── docs/
+│   └── test-reports/         # What was tested on a given day, and what passed
 ```
 
 ---
