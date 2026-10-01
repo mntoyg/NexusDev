@@ -155,7 +155,7 @@ esac
 runs_this_hour() {
   [ -f "$METRICS_FILE" ] || { echo 0; return; }
   "$PYTHON" - "$METRICS_FILE" <<'PY'
-import json, sys, time
+import calendar, json, sys, time
 cutoff = time.time() - 3600
 count = 0
 try:
@@ -176,7 +176,12 @@ try:
             if len(parts) < 3:
                 continue
             try:
-                started = time.mktime(time.strptime(parts[1], "%Y%m%dT%H%M%SZ")) - time.timezone
+                # calendar.timegm, not mktime: the stamp is already UTC, and
+                # mktime reads it as local time. Correcting that by subtracting
+                # time.timezone is wrong whenever the machine is in DST, because
+                # strptime leaves tm_isdst at -1 and mktime then applies altzone
+                # instead. An hour of skew silently widens or narrows the cap.
+                started = calendar.timegm(time.strptime(parts[1], "%Y%m%dT%H%M%SZ"))
             except ValueError:
                 continue
             if started >= cutoff:

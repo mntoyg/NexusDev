@@ -135,6 +135,7 @@ NexusDev/
 ├── .cursorrules              # Contract binding Cursor to its lane
 ├── CONTRIBUTING.md            # How to land a pull request (five minute read)
 ├── .env.example              # Config template — names only, values always empty
+├── .gitattributes            # LF in the repository: a CRLF script breaks every gate on Linux
 ├── .gitleaks.toml            # Secret-scanning rules (extends the gitleaks defaults)
 ├── LICENSE                   # MIT
 ├── README.md                 # You are here
@@ -153,7 +154,13 @@ NexusDev/
 │   ├── state_ledger.py       # Records the claim in STATE.json; validated, atomic
 │   ├── task_lock.py          # Task locks per ADR-004: a git ref is the mutex
 │   ├── ai-router.sh          # Load balancer: routes a task, claims its lock, emits telemetry
-│   └── telemetry.py          # [planned] Comet emitter
+│   ├── telemetry.py          # [planned] Comet emitter
+│   └── ci/                   # Every gate's shell lives here, not inside the YAML
+│       ├── lint-shell.sh     #   shellcheck + refuses multi-line shell in a workflow
+│       ├── selftest-validators.sh  #   Proves task_parser/validate_state still reject bad input
+│       ├── install-gitleaks.sh     #   Checksum-verified download
+│       ├── selftest-gitleaks.sh    #   Canaries: proves the secret gate is not blind
+│       └── sweep-locks.sh    #   Breaks locks left behind by killed runners
 ├── tests/                     # Runs with `python -m unittest discover tests` — no install needed
 ├── .github/
 │   ├── dependabot.yml        # Keeps the pinned action SHAs current
