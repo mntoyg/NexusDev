@@ -46,7 +46,8 @@ Exist so the router has something to route.
 """
 
 
-def block(task_id: str, status: str, route: str, complexity: str = "low", depends: str = "none") -> str:
+def block(task_id: str, status: str, route: str, complexity: str = "low", depends: str = "none",
+          owner: str = "aider") -> str:
     return f"""
 ### [{task_id}] Fixture task {task_id}
 - **status:** {status}
@@ -54,7 +55,7 @@ def block(task_id: str, status: str, route: str, complexity: str = "low", depend
 - **route:** {route}
 - **files:** scripts/nothing.py
 - **depends_on:** {depends}
-- **owner:** aider
+- **owner:** {owner}
 
 **Goal**
 A fixture.
@@ -315,6 +316,52 @@ class TaskIdInjection(RouterFixture):
         done = self.route("--task-id", "TASK-900a", "--dry-run")
         # No such task exists, so exit 1 - but it must get past validation, not 4.
         self.assertEqual(1, done.returncode, done.stderr)
+
+
+class OwnerGate(RouterFixture):
+    """The router must only execute tasks its executor actually owns.
+
+    Before this check the router read `owner` and used it for nothing but a line
+    in a parked QUEUE entry. A task owned by `human` or `opencode` would be
+    claimed and handed to the executor, which is how an agent ends up doing work
+    nobody asked it to do - and the hourly picker in TASK-007 would have reached
+    such a task on its own.
+    """
+
+    todo = (READY_TASK
+            + block("TASK-901", "ready", "hermes", owner="human")
+            + block("TASK-902", "ready", "hermes", owner="opencode")
+            + block("TASK-903", "ready", "hermes", owner="cursor")
+            + block("TASK-904", "ready", "hermes", owner="claude"))
+
+    def test_tasks_owned_by_other_nodes_are_not_executed(self) -> None:
+        for task, owner in (("TASK-901", "human"), ("TASK-902", "opencode"),
+                            ("TASK-903", "cursor"), ("TASK-904", "claude")):
+            with self.subTest(owner=owner):
+                done = self.route("--task-id", task, "--force-backend", "claude", ANTHROPIC_API_KEY="x")
+                self.assertEqual(0, done.returncode, done.stderr)
+                self.assertIn(f"owned by '{owner}'", done.stderr)
+
+    def test_a_non_routable_task_is_never_claimed(self) -> None:
+        """The check runs before the claim, so no ref is created and deleted."""
+        done = self.route("--task-id", "TASK-901", "--force-backend", "claude", ANTHROPIC_API_KEY="x")
+        self.assertNotIn("claimed TASK-901", done.stderr)
+        self.assertEqual([], self.locks())
+
+    def test_an_aider_task_still_routes(self) -> None:
+        done = self.route("--task-id", "TASK-900", "--dry-run", ANTHROPIC_API_KEY="x")
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertIn("backend=claude", done.stdout)
+
+    def test_the_routable_set_is_configurable(self) -> None:
+        done = self.route("--task-id", "TASK-902", "--dry-run", ANTHROPIC_API_KEY="x",
+                          NEXUS_ROUTABLE_OWNERS="aider,opencode")
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertNotIn("owned by", done.stderr)
+
+    def test_telemetry_records_the_refusal(self) -> None:
+        self.route("--task-id", "TASK-901", "--force-backend", "claude", ANTHROPIC_API_KEY="x")
+        self.assertEqual("not_routable", self.telemetry()[-1]["outcome"])
 
 
 class Handoff(RouterFixture):

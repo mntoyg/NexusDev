@@ -421,7 +421,11 @@ file in the repository.
 ```
 INPUT: task_id
   1. Parse the task block  →  task_parser.py --task-id <id>  →  JSON
-  2. Validate: status == ready, depends_on satisfied, files <= 5. Else → blocked.
+  2. Validate: status == ready, owner is one this router executes, depends_on
+     satisfied, files <= 5. Else → not ours or blocked; exit 0 either way, since
+     the bus saying "not yours" is not a failure. The owner check matters: the
+     handoff goes to one executor, so a task owned by cursor, claude, opencode or
+     human belongs to a different path and must never be claimed here.
   3. Claim the task by creating refs/nexus/lock/<id> with a run-unique object
      (ADR-004). Rejected push → exit 0, another runner has it. Then record
      held_by / acquired_at / ttl_seconds in STATE.json as the ledger.
@@ -472,6 +476,7 @@ ANTHROPIC_API_KEY        required for the claude backend
 HERMES_ENDPOINT          e.g. http://localhost:11434 ; optional
 HERMES_MODEL             model tag for the Hermes backend; optional
 NEXUS_EXECUTOR_CMD       command the router hands off to; absent → nothing executes
+NEXUS_ROUTABLE_OWNERS    comma-separated task owners this router may execute; default aider
 COMET_API_KEY            optional; absent → local JSONL fallback
 COMET_PROJECT            Comet project name; optional
 NEXUS_DRY_RUN            "1" disables all side effects

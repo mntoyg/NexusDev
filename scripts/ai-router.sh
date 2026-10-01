@@ -33,6 +33,11 @@ FORCE_BACKEND=""
 MAX_RUNS_PER_HOUR="${NEXUS_MAX_RUNS_PER_HOUR:-10}"
 HERMES_ENDPOINT="${HERMES_ENDPOINT:-}"
 HERMES_MODEL="${HERMES_MODEL:-hermes-local}"
+# Which task owners this router may execute. The handoff goes to one executor,
+# so a task owned by cursor, claude, opencode or human belongs to a different
+# path entirely and must not be claimed here. Configurable rather than hardcoded
+# to "aider", because the executor itself is configurable (NEXUS_EXECUTOR_CMD).
+ROUTABLE_OWNERS="${NEXUS_ROUTABLE_OWNERS:-aider}"
 METRICS_FILE="$REPO_ROOT/metrics/runs.jsonl"
 STATE_FILE="$REPO_ROOT/context/STATE.json"
 
@@ -213,6 +218,20 @@ fi
 
 # A dependency check needs every task, not just this one, so the parser is
 # imported rather than shelled out to twice.
+# An owner this router cannot execute is not an error either: the bus is saying
+# the task belongs to another node. Claiming it would hand human or OpenCode work
+# to the executor, which is how an agent ends up doing something nobody asked it
+# to do.
+owner_routable=0
+for candidate in $(printf '%s' "$ROUTABLE_OWNERS" | tr ',' ' '); do
+  [ "$OWNER" = "$candidate" ] && owner_routable=1
+done
+if [ "$owner_routable" -ne 1 ]; then
+  log "$TASK_ID is owned by '$OWNER'; this router only executes: $ROUTABLE_OWNERS"
+  OUTCOME="not_routable"
+  exit 0
+fi
+
 unmet="$("$PYTHON" - "$REPO_ROOT/context/TODO.md" "$TASK_ID" "$SCRIPT_DIR/task_parser.py" <<'PY'
 import importlib.util
 import sys
